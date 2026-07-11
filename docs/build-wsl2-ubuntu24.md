@@ -109,7 +109,7 @@ mkdir -p ~/codes
 cd ~/codes
 
 if [ ! -d cockpit-tools/.git ]; then
-  git clone https://github.com/jlcodes99/cockpit-tools.git cockpit-tools
+  git clone https://github.com/Jader/cockpit-tools.git cockpit-tools
 fi
 
 cd ~/codes/cockpit-tools

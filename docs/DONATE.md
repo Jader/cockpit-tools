@@ -39,4 +39,4 @@
 ## 📝 说明
 
 - 赞助完全自愿，不影响您使用本项目的任何功能
-- 如有任何问题或建议，欢迎通过 [GitHub Issues](https://github.com/jlcodes99/cockpit-tools/issues) 反馈
+- 如有任何问题或建议，欢迎通过 [GitHub Issues](https://github.com/Jader/cockpit-tools/issues) 反馈

@@ -2,10 +2,10 @@
 
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
-[![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
-[![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
+[![GitHub stars](https://img.shields.io/github/stars/Jader/cockpit-tools?style=flat&color=gold)](https://github.com/Jader/cockpit-tools)
+[![GitHub downloads](https://img.shields.io/github/downloads/Jader/cockpit-tools/total?style=flat&color=blue)](https://github.com/Jader/cockpit-tools/releases)
+[![GitHub release](https://img.shields.io/github/v/release/Jader/cockpit-tools?style=flat)](https://github.com/Jader/cockpit-tools/releases)
+[![GitHub issues](https://img.shields.io/github/issues/Jader/cockpit-tools)](https://github.com/Jader/cockpit-tools/issues)
 
 一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN** 和 **Zed**，并支持多账号多实例并行运行。
 
@@ -316,7 +316,7 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 
 ### 选项 A: 手动下载 (推荐)
 
-前往 [GitHub Releases](https://github.com/jlcodes99/cockpit-tools/releases) 下载对应系统的安装包：
+前往 [GitHub Releases](https://github.com/Jader/cockpit-tools/releases) 下载对应系统的安装包：
 
 *   **macOS**: `.dmg` (Apple Silicon & Intel)
 *   **Windows**: `.msi` (推荐) 或 `.exe`
@@ -327,7 +327,7 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 > 需要先安装 Homebrew。
 
 ```bash
-brew tap jlcodes99/cockpit-tools https://github.com/jlcodes99/cockpit-tools
+brew tap Jader/cockpit-tools https://github.com/Jader/cockpit-tools
 brew install --cask cockpit-tools
 ```
 
@@ -396,7 +396,7 @@ npm run tauri build
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=jlcodes99/cockpit-tools&type=Date)](https://star-history.com/#jlcodes99/cockpit-tools&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Jader/cockpit-tools&type=Date)](https://star-history.com/#Jader/cockpit-tools&Date)
 
 ---
 

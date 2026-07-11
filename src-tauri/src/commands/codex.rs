@@ -854,6 +854,24 @@ pub async fn switch_codex_account(
         tray_started.elapsed().as_millis(),
         flow_started.elapsed().as_millis()
     ));
+    let usage_recommendation = codex_account::pick_usage_recommendation();
+    crate::modules::wecom_switch_notify::notify_switch_with_recommendation(
+        "Codex",
+        &account.id,
+        &account.email,
+        "switch",
+        "tools.codex.switch",
+        None,
+        usage_recommendation
+            .as_ref()
+            .map(|recommendation| recommendation.account_id.as_str()),
+        usage_recommendation
+            .as_ref()
+            .map(|recommendation| recommendation.account_label.as_str()),
+        usage_recommendation
+            .as_ref()
+            .map(|recommendation| recommendation.reason.as_str()),
+    );
     Ok(account)
 }
 

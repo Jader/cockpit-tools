@@ -205,6 +205,7 @@ interface GeneralConfig {
   codex_auto_switch_secondary_threshold?: number;
   codex_auto_switch_account_scope_mode?: string;
   codex_auto_switch_selected_account_ids?: string[];
+  wecom_switch_notify_sender_name?: string;
   quota_alert_enabled: boolean;
   quota_alert_threshold: number;
   codex_quota_alert_enabled: boolean;
@@ -541,6 +542,7 @@ export function SettingsPage() {
   const [autoSwitchAccountScopeMode, setAutoSwitchAccountScopeMode] =
     useState<AutoSwitchAccountScopeMode>(AUTO_SWITCH_SCOPE_ALL_ACCOUNTS);
   const [autoSwitchSelectedAccountIds, setAutoSwitchSelectedAccountIds] = useState<string[]>([]);
+  const [wecomSwitchNotifySenderName, setWecomSwitchNotifySenderName] = useState('');
   const [codexAutoSwitchEnabled, setCodexAutoSwitchEnabled] = useState(false);
   const [codexAutoSwitchAccountScopeMode, setCodexAutoSwitchAccountScopeMode] =
     useState<AutoSwitchAccountScopeMode>(AUTO_SWITCH_SCOPE_ALL_ACCOUNTS);
@@ -976,6 +978,7 @@ export function SettingsPage() {
             : parsedAutoSwitchCreditsThreshold,
           autoSwitchAccountScopeMode,
           autoSwitchSelectedAccountIds,
+          wecomSwitchNotifySenderName,
           codexAutoSwitchAccountScopeMode,
           codexAutoSwitchSelectedAccountIds,
           quotaAlertEnabled,
@@ -1128,6 +1131,7 @@ export function SettingsPage() {
     autoSwitchCreditsThreshold,
     autoSwitchAccountScopeMode,
     autoSwitchSelectedAccountIds,
+    wecomSwitchNotifySenderName,
     codexAutoSwitchAccountScopeMode,
     codexAutoSwitchSelectedAccountIds,
     quotaAlertEnabled,
@@ -1476,6 +1480,7 @@ export function SettingsPage() {
         normalizeAutoSwitchAccountScopeMode(config.auto_switch_account_scope_mode),
       );
       setAutoSwitchSelectedAccountIds(config.auto_switch_selected_account_ids ?? []);
+      setWecomSwitchNotifySenderName(config.wecom_switch_notify_sender_name ?? '');
       setCodexAutoSwitchEnabled(config.codex_auto_switch_enabled ?? false);
       setCodexAutoSwitchAccountScopeMode(
         normalizeAutoSwitchAccountScopeMode(config.codex_auto_switch_account_scope_mode),
@@ -2927,6 +2932,32 @@ export function SettingsPage() {
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <div className="row-label">
+                  <div className="row-title">
+                    {t('settings.general.wecomSwitchNotifySenderName', '企微通知来源名称')}
+                  </div>
+                  <div className="row-desc">
+                    {t(
+                      'settings.general.wecomSwitchNotifySenderNameDesc',
+                      '用于在切号通知中标识触发切号的电脑或角色；留空时自动使用本机信息。'
+                    )}
+                  </div>
+                </div>
+                <div className="row-control">
+                  <input
+                    type="text"
+                    className="settings-input"
+                    value={wecomSwitchNotifySenderName}
+                    placeholder={t(
+                      'settings.general.wecomSwitchNotifySenderNamePlaceholder',
+                      '例如：Jader 主力 Mac'
+                    )}
+                    onChange={(e) => setWecomSwitchNotifySenderName(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -6843,26 +6874,26 @@ export function SettingsPage() {
             </div>
 
             <div className="credits-list">
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99')}>
+              <button className="credit-item" onClick={() => openLink('https://github.com/Jader')}>
                 <div className="credit-icon"><User size={24} /></div>
                 <h3>{t('settings.about.author')}</h3>
-                <p>jlcodes99</p>
+                <p>Jader</p>
               </button>
               
               
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools')}>
+              <button className="credit-item" onClick={() => openLink('https://github.com/Jader/cockpit-tools')}>
                 <div className="credit-icon" style={{ color: '#0f172a' }}><Github size={24} /></div>
                 <h3>{t('settings.about.github')}</h3>
                 <p>cockpit-tools</p>
               </button>
 
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools/blob/main/docs/DONATE.md')}>
+              <button className="credit-item" onClick={() => openLink('https://github.com/Jader/cockpit-tools/blob/main/docs/DONATE.md')}>
                 <div className="credit-icon" style={{ color: '#ef4444' }}><Heart size={24} /></div>
                 <h3>{t('settings.about.sponsor')}</h3>
                 <p>{t('settings.about.sponsorDesc', 'Donate')}</p>
               </button>
 
-              <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools/issues')}>
+              <button className="credit-item" onClick={() => openLink('https://github.com/Jader/cockpit-tools/issues')}>
                 <div className="credit-icon" style={{ color: '#3b82f6' }}><MessageSquare size={24} /></div>
                 <h3>{t('settings.about.feedback', '意见反馈')}</h3>
                 <p>{t('settings.about.feedbackDesc', 'Issues')}</p>

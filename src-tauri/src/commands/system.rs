@@ -216,6 +216,8 @@ pub struct GeneralConfig {
     pub codex_auto_switch_account_scope_mode: String,
     /// Codex 自动切号指定账号（账号 ID）
     pub codex_auto_switch_selected_account_ids: Vec<String>,
+    /// 企业微信切号通知来源名称
+    pub wecom_switch_notify_sender_name: String,
     /// 是否启用配额预警通知
     pub quota_alert_enabled: bool,
     /// 配额预警阈值（百分比）
@@ -2056,6 +2058,9 @@ pub fn save_network_config(
         codex_auto_switch_secondary_threshold: current.codex_auto_switch_secondary_threshold,
         codex_auto_switch_account_scope_mode: current.codex_auto_switch_account_scope_mode,
         codex_auto_switch_selected_account_ids: current.codex_auto_switch_selected_account_ids,
+        wecom_switch_notify_enabled: true,
+        wecom_switch_notify_webhook: current.wecom_switch_notify_webhook,
+        wecom_switch_notify_sender_name: current.wecom_switch_notify_sender_name,
         quota_alert_enabled: current.quota_alert_enabled,
         quota_alert_threshold: current.quota_alert_threshold,
         codex_quota_alert_enabled: current.codex_quota_alert_enabled,
@@ -2378,6 +2383,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         codex_auto_switch_secondary_threshold: user_config.codex_auto_switch_secondary_threshold,
         codex_auto_switch_account_scope_mode: user_config.codex_auto_switch_account_scope_mode,
         codex_auto_switch_selected_account_ids: user_config.codex_auto_switch_selected_account_ids,
+        wecom_switch_notify_sender_name: user_config.wecom_switch_notify_sender_name,
         quota_alert_enabled: user_config.quota_alert_enabled,
         quota_alert_threshold: user_config.quota_alert_threshold,
         codex_quota_alert_enabled: user_config.codex_quota_alert_enabled,
@@ -2528,6 +2534,7 @@ pub fn save_general_config(
     codex_auto_switch_secondary_threshold: Option<i32>,
     codex_auto_switch_account_scope_mode: Option<String>,
     codex_auto_switch_selected_account_ids: Option<Vec<String>>,
+    wecom_switch_notify_sender_name: Option<String>,
     quota_alert_enabled: Option<bool>,
     quota_alert_threshold: Option<i32>,
     codex_quota_alert_enabled: Option<bool>,
@@ -2674,6 +2681,9 @@ pub fn save_general_config(
     );
     let floating_card_confirm_on_close_value =
         floating_card_confirm_on_close.unwrap_or(current.floating_card_confirm_on_close);
+    let normalized_wecom_switch_notify_sender_name = wecom_switch_notify_sender_name
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.wecom_switch_notify_sender_name.clone());
     let next_codex_quota_alert_threshold =
         codex_quota_alert_threshold.unwrap_or(current.codex_quota_alert_threshold);
     let next_opencode_auth_overwrite_on_switch =
@@ -2842,6 +2852,9 @@ pub fn save_general_config(
                 .as_deref()
                 .unwrap_or(current.codex_auto_switch_selected_account_ids.as_slice()),
         ),
+        wecom_switch_notify_enabled: true,
+        wecom_switch_notify_webhook: current.wecom_switch_notify_webhook,
+        wecom_switch_notify_sender_name: normalized_wecom_switch_notify_sender_name,
         quota_alert_enabled: quota_alert_enabled.unwrap_or(current.quota_alert_enabled),
         quota_alert_threshold: quota_alert_threshold.unwrap_or(current.quota_alert_threshold),
         codex_quota_alert_enabled: codex_quota_alert_enabled
