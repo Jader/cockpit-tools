@@ -174,6 +174,7 @@ type customRoutingRule struct {
 	AccountID string `json:"accountId"`
 	Priority  int    `json:"priority"`
 	Weight    int    `json:"weight"`
+	IsBackup  bool   `json:"isBackup"`
 }
 
 type usagePayload struct {
@@ -279,13 +280,23 @@ type usageFinalizeInput struct {
 	errorMessage  string
 }
 
+type selectedAccountRecord struct {
+	AccountID    string
+	AccountEmail string
+	AuthID       string
+}
+
 type requestUsageTracker struct {
-	mu      sync.Mutex
-	records map[string][]usagePayload
+	mu               sync.Mutex
+	records          map[string][]usagePayload
+	selectedAccounts map[string]selectedAccountRecord
 }
 
 func newRequestUsageTracker() *requestUsageTracker {
-	return &requestUsageTracker{records: make(map[string][]usagePayload)}
+	return &requestUsageTracker{
+		records:          make(map[string][]usagePayload),
+		selectedAccounts: make(map[string]selectedAccountRecord),
+	}
 }
 
 func (t *requestUsageTracker) record(payload usagePayload) {
@@ -302,6 +313,23 @@ func (t *requestUsageTracker) record(payload usagePayload) {
 	t.mu.Unlock()
 }
 
+func (t *requestUsageTracker) recordSelectedAccount(requestID string, account *accountSpec, authID string) {
+	if t == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || account == nil {
+		return
+	}
+	t.mu.Lock()
+	t.selectedAccounts[requestID] = selectedAccountRecord{
+		AccountID:    strings.TrimSpace(account.ID),
+		AccountEmail: strings.TrimSpace(account.Email),
+		AuthID:       strings.TrimSpace(authID),
+	}
+	t.mu.Unlock()
+}
+
 func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInput) (usagePayload, bool) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
@@ -309,10 +337,14 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	}
 
 	var records []usagePayload
+	var selected selectedAccountRecord
+	var selectedOK bool
 	if t != nil {
 		t.mu.Lock()
 		records = append(records, t.records[requestID]...)
 		delete(t.records, requestID)
+		selected, selectedOK = t.selectedAccounts[requestID]
+		delete(t.selectedAccounts, requestID)
 		t.mu.Unlock()
 	}
 
@@ -350,6 +382,15 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	}
 	if strings.TrimSpace(payload.RequestKind) == "" {
 		payload.RequestKind = strings.TrimSpace(input.requestKind)
+	}
+	if selectedOK {
+		payload.AccountID = selected.AccountID
+		payload.AccountEmail = selected.AccountEmail
+		payload.AuthID = selected.AuthID
+	} else {
+		payload.AccountID = ""
+		payload.AccountEmail = ""
+		payload.AuthID = ""
 	}
 	if input.status > 0 {
 		payload.Status = input.status
@@ -1043,7 +1084,18 @@ func visibleModelsForAPIKey(m *manifest, spec *apiKeySpec) []string {
 		return nil
 	}
 	if spec != nil && spec.ProviderGateway != nil {
-		return append([]string(nil), spec.ProviderGateway.UpstreamModels...)
+		models := make([]string, 0, len(spec.ProviderGateway.UpstreamModels))
+		for _, upstreamModel := range spec.ProviderGateway.UpstreamModels {
+			clientModel := upstreamModel
+			for _, alias := range m.ModelAliases {
+				if strings.EqualFold(alias.SourceModel, upstreamModel) {
+					clientModel = alias.Alias
+					break
+				}
+			}
+			models = append(models, clientModel)
+		}
+		return normalizeStringList(models)
 	}
 	models := applyModelFilters(m.ModelIDs, nil, m.ExcludedModels)
 	if spec != nil {
@@ -1081,6 +1133,11 @@ func canonicalModelForClientModel(m *manifest, spec *apiKeySpec, model string) s
 		return codexAutoReviewModel
 	}
 	if spec != nil && spec.ProviderGateway != nil {
+		if m != nil {
+			if source := m.aliasToSource[strings.ToLower(withoutPrefix)]; source != "" {
+				withoutPrefix = source
+			}
+		}
 		return providerGatewayCanonicalModel(spec.ProviderGateway, withoutPrefix)
 	}
 	if m != nil {
@@ -1405,10 +1462,36 @@ type cockpitSelector struct {
 	cursor   int
 }
 
+type recordingSelector struct {
+	inner    coreauth.Selector
+	manifest *manifest
+	tracker  *requestUsageTracker
+}
+
+func (s *recordingSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
+	auth, err := s.inner.Pick(ctx, provider, model, opts, auths)
+	if err != nil || auth == nil || s.tracker == nil {
+		return auth, err
+	}
+	s.tracker.recordSelectedAccount(internallogging.GetRequestID(ctx), accountForAuthInManifest(s.manifest, auth), auth.ID)
+	return auth, nil
+}
+
+func (s *recordingSelector) Stop() {
+	if stoppable, ok := s.inner.(coreauth.StoppableSelector); ok {
+		stoppable.Stop()
+	}
+}
+
 type quotaReserveSelector struct {
 	manifest *manifest
 	fallback coreauth.Selector
 	quota    *quotaReserveStateStore
+}
+
+type backupAccountSelector struct {
+	manifest *manifest
+	fallback coreauth.Selector
 }
 
 func quotaReserveSnapshotsFromManifest(m *manifest) map[string]quotaReserveSnapshot {
@@ -1565,6 +1648,57 @@ func (s *quotaReserveSelector) Pick(ctx context.Context, provider, model string,
 }
 
 func (s *quotaReserveSelector) Stop() {
+	if s == nil || s.fallback == nil {
+		return
+	}
+	if stoppable, ok := s.fallback.(coreauth.StoppableSelector); ok {
+		stoppable.Stop()
+	}
+}
+
+func (s *backupAccountSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
+	if s == nil || s.fallback == nil {
+		return nil, fmt.Errorf("backup account selector is not initialized")
+	}
+	if s.manifest == nil || !strings.EqualFold(strings.TrimSpace(s.manifest.RoutingStrategy), "custom") {
+		return s.fallback.Pick(ctx, provider, model, opts, auths)
+	}
+
+	now := time.Now()
+	regular := make([]*coreauth.Auth, 0, len(auths))
+	backup := make([]*coreauth.Auth, 0)
+	regularAvailable := false
+	for _, auth := range auths {
+		if s.isBackupAuth(auth) {
+			backup = append(backup, auth)
+			continue
+		}
+		regular = append(regular, auth)
+		if authAvailable(auth, model, now) {
+			regularAvailable = true
+		}
+	}
+
+	if regularAvailable || len(backup) == 0 {
+		return s.fallback.Pick(ctx, provider, model, opts, regular)
+	}
+	return s.fallback.Pick(ctx, provider, model, opts, backup)
+}
+
+func (s *backupAccountSelector) isBackupAuth(auth *coreauth.Auth) bool {
+	account := accountForAuthInManifest(s.manifest, auth)
+	if account == nil {
+		return false
+	}
+	for _, rule := range s.manifest.CustomRoutingRules {
+		if rule.AccountID == account.ID {
+			return rule.IsBackup
+		}
+	}
+	return false
+}
+
+func (s *backupAccountSelector) Stop() {
 	if s == nil || s.fallback == nil {
 		return
 	}
@@ -2292,17 +2426,21 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 		})
 	}
 	if m != nil {
+		selector = &backupAccountSelector{manifest: m, fallback: selector}
 		selector = &quotaReserveSelector{manifest: m, fallback: selector, quota: quota}
 	}
 	return selector
 }
 
-func buildCoreAuthManager(cfg *config.Config, selector coreauth.Selector, hook coreauth.Hook, m *manifest, quota *quotaReserveStateStore) *coreauth.Manager {
+func buildCoreAuthManager(cfg *config.Config, selector coreauth.Selector, hook coreauth.Hook, m *manifest, quota *quotaReserveStateStore, tracker *requestUsageTracker) *coreauth.Manager {
 	tokenStore := sdkauth.GetTokenStore()
 	if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok && cfg != nil {
 		dirSetter.SetBaseDir(cfg.AuthDir)
 	}
 	selector = buildCoreAuthSelector(cfg, selector, m, quota)
+	if tracker != nil {
+		selector = &recordingSelector{inner: selector, manifest: m, tracker: tracker}
+	}
 	return coreauth.NewManager(tokenStore, selector, hook)
 }
 
@@ -5986,7 +6124,7 @@ func main() {
 	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: usageTracker}
 	hook := &authHook{manifest: m, emitter: emitter}
 	selector := &cockpitSelector{manifest: m, emitter: emitter, quota: quotaState}
-	coreManager := buildCoreAuthManager(cfg, selector, hook, m, quotaState)
+	coreManager := buildCoreAuthManager(cfg, selector, hook, m, quotaState, usageTracker)
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
