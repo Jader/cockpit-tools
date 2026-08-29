@@ -45,6 +45,8 @@ import {
   removeAccountsOverviewFilterField,
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence';
+import { CodebuddySessionListPanel } from '../components/codebuddy/CodebuddySessionListPanel';
+import { CodebuddySessionManager } from '../components/codebuddy/CodebuddySessionManager';
 
 const CB_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.codebuddy.flow_notice_collapsed';
 const CB_CURRENT_ACCOUNT_ID_KEY = 'agtools.codebuddy.current_account_id';
@@ -563,9 +565,12 @@ export function CodebuddyAccountsPage() {
         platform="codebuddy"
         active={activeTab}
         onTabChange={setActiveTab}
+        tabs={['overview', 'sessions', 'instances']}
       />
       {activeTab === 'instances' ? (
         <CodebuddyInstancesContent accountsForSelect={filteredAccounts} />
+      ) : activeTab === 'sessions' ? (
+        <CodebuddySessionManager platform="intl" accounts={store.accounts as any} />
       ) : (
         <>
       <div className={`ghcp-flow-notice ${isFlowNoticeCollapsed ? 'collapsed' : ''}`} role="note">
@@ -707,14 +712,6 @@ export function CodebuddyAccountsPage() {
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid-view-container">
-          {paginatedAccounts.length > 0 && (
-            <div className="grid-view-header" style={{ marginBottom: '12px', paddingLeft: '4px' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-color)' }}>
-                <input type="checkbox" checked={isAllPaginatedSelected} onChange={() => toggleSelectAll(paginatedIds)} />
-                {t('common.selectAll', '全选')}
-              </label>
-            </div>
-          )}
           {groupByTag ? (
           <div className="tag-group-list">
             {paginatedGroupedAccounts.map(({ groupKey, items, totalCount }) => (
@@ -784,6 +781,9 @@ export function CodebuddyAccountsPage() {
         onPreviousPage={pagination.goToPreviousPage}
         onNextPage={pagination.goToNextPage}
       />
+
+      {/* Full session manager is on the sessions tab; keep lightweight list on overview. */}
+      <CodebuddySessionListPanel />
 
       {showAddModal && (
         <div className="modal-overlay">

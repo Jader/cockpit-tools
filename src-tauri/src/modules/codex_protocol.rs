@@ -7,7 +7,7 @@ const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
 const CODEX_MODEL_CATALOG_TEMPLATE_SLUG: &str = "gpt-5.5";
 const CODEX_CLIENT_MODEL_TEMPLATES_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/internal/registry/models/codex_client_models.json"
+    "/../sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/registry/models/codex_client_models.json"
 ));
 const DEFAULT_CONTEXT_WINDOW: i64 = 272_000;
 const DEFAULT_MAX_CONTEXT_WINDOW: i64 = 1_000_000;
@@ -60,20 +60,147 @@ pub fn build_codex_client_models_response(model_ids: &[String]) -> Value {
     json!({ "models": models })
 }
 
-pub(crate) fn managed_codex_model_ids() -> Vec<String> {
-    codex_client_model_catalog()
-        .get("model_overrides")
-        .and_then(Value::as_array)
-        .map(|models| {
-            models
-                .iter()
-                .filter_map(|model| model.get("slug").and_then(Value::as_str))
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-                .map(str::to_string)
-                .collect()
+pub fn build_codex_client_models_response_with_model_definitions(
+    definitions: &[(String, String)],
+) -> Value {
+    let definitions = definitions
+        .iter()
+        .map(|(model_id, display_name)| (model_id.clone(), display_name.clone(), None))
+        .collect::<Vec<_>>();
+    build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions)
+}
+
+pub fn build_codex_client_models_response_with_model_definitions_and_reasoning(
+    definitions: &[(String, String, Option<Vec<String>>)],
+) -> Value {
+    let models = definitions
+        .iter()
+        .enumerate()
+        .map(|(index, (model_id, display_name, reasoning_efforts))| {
+            let mut model = build_codex_client_model(model_id, index);
+            if let Some(object) = model.as_object_mut() {
+                object.insert(
+                    "display_name".to_string(),
+                    Value::String(display_name.clone()),
+                );
+                object.insert(
+                    "description".to_string(),
+                    Value::String(display_name.clone()),
+                );
+                if let Some(reasoning_efforts) = reasoning_efforts {
+                    apply_reasoning_effort_override(object, reasoning_efforts);
+                }
+            }
+            model
         })
-        .unwrap_or_default()
+        .collect::<Vec<_>>();
+    json!({ "models": models })
+}
+
+pub fn apply_model_context_overrides(
+    catalog: &mut Value,
+    definitions: &[(String, Option<i64>, Option<i64>)],
+) {
+    let Some(models) = catalog.get_mut("models").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for model in models {
+        let Some(slug) = model
+            .get("slug")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some((_, context_window, auto_compact_token_limit)) = definitions
+            .iter()
+            .find(|(model_id, _, _)| model_id.trim().eq_ignore_ascii_case(slug))
+        else {
+            continue;
+        };
+        let Some(object) = model.as_object_mut() else {
+            continue;
+        };
+        if let Some(context_window) = context_window.filter(|value| *value > 0) {
+            object.insert("context_window".to_string(), json!(context_window));
+            object.insert("max_context_window".to_string(), json!(context_window));
+        }
+        if let Some(auto_compact_token_limit) = auto_compact_token_limit.filter(|value| *value > 0)
+        {
+            object.insert(
+                "auto_compact_token_limit".to_string(),
+                json!(auto_compact_token_limit),
+            );
+        }
+    }
+}
+
+fn apply_reasoning_effort_override(object: &mut Map<String, Value>, efforts: &[String]) {
+    let canonical_model = codex_client_model_template("gpt-5.6-sol").0;
+    let Some(levels) = canonical_model
+        .get("supported_reasoning_levels")
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    let selected = efforts
+        .iter()
+        .filter_map(|effort| {
+            levels
+                .iter()
+                .find(|level| level.get("effort").and_then(Value::as_str) == Some(effort))
+                .cloned()
+                .or_else(|| Some(json!({"effort": effort})))
+        })
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        return;
+    }
+    object.insert(
+        "supported_reasoning_levels".to_string(),
+        Value::Array(selected.clone()),
+    );
+    let current_default = object
+        .get("default_reasoning_level")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !efforts.iter().any(|effort| effort == current_default) {
+        if let Some(first) = efforts.first() {
+            object.insert(
+                "default_reasoning_level".to_string(),
+                Value::String(first.clone()),
+            );
+        }
+    }
+}
+
+pub(crate) fn managed_codex_model_ids() -> Vec<String> {
+    let catalog = codex_client_model_catalog();
+    let overrides = catalog.get("model_overrides").and_then(Value::as_array);
+    let models = overrides
+        .filter(|models| !models.is_empty())
+        .or_else(|| catalog.get("models").and_then(Value::as_array));
+
+    models
+        .into_iter()
+        .flatten()
+        .filter(|model| {
+            overrides.is_some_and(|overrides| !overrides.is_empty())
+                || (model
+                    .get("use_responses_lite")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    && !model
+                        .get("visibility")
+                        .and_then(Value::as_str)
+                        .is_some_and(|visibility| visibility.eq_ignore_ascii_case("hide")))
+        })
+        .filter_map(|model| model.get("slug").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn normalize_responses_body_for_codex(body: &mut Value) -> bool {
@@ -101,16 +228,20 @@ pub fn normalize_responses_body_for_codex_with_lite(
     changed |= ensure_reasoning_include(obj);
     changed |= normalize_responses_input(obj);
     changed |= normalize_codex_builtin_tools(obj);
+    if responses_lite {
+        changed |= filter_responses_lite_tools_in_object(obj);
+    }
     changed |= remove_unsupported_responses_fields(obj);
 
     changed
 }
 
-fn codex_model_uses_responses_lite(model_id: &str) -> bool {
-    codex_client_model_catalog()
-        .get("model_overrides")
-        .and_then(Value::as_array)
-        .is_some_and(|models| {
+pub(crate) fn codex_model_uses_responses_lite(model_id: &str) -> bool {
+    let catalog = codex_client_model_catalog();
+    ["model_overrides", "models"]
+        .into_iter()
+        .filter_map(|key| catalog.get(key).and_then(Value::as_array))
+        .any(|models| {
             models.iter().any(|model| {
                 model
                     .get("slug")
@@ -122,6 +253,130 @@ fn codex_model_uses_responses_lite(model_id: &str) -> bool {
                         .unwrap_or(false)
             })
         })
+}
+
+pub(crate) fn filter_responses_lite_tools(body: &mut Value) -> bool {
+    body.as_object_mut()
+        .is_some_and(filter_responses_lite_tools_in_object)
+}
+
+fn responses_lite_tool_allowed(tool: &Value) -> bool {
+    match tool
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|tool_type| tool_type.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("function" | "custom") => true,
+        Some("tool_search") => tool
+            .get("execution")
+            .and_then(Value::as_str)
+            .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client")),
+        _ => false,
+    }
+}
+
+fn filter_responses_lite_tool_array(value: &mut Value) -> (bool, bool) {
+    let Some(tools) = value.as_array_mut() else {
+        return (false, false);
+    };
+    let before = tools.len();
+    tools.retain(responses_lite_tool_allowed);
+    (tools.len() != before, !tools.is_empty())
+}
+
+fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
+    if let Some(choice_name) = choice.as_str() {
+        let valid = matches!(
+            choice_name.trim().to_ascii_lowercase().as_str(),
+            "auto" | "none" | "required"
+        );
+        return (false, valid);
+    }
+
+    let Some(choice_object) = choice.as_object_mut() else {
+        return (false, false);
+    };
+    let choice_type = choice_object
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase());
+
+    match choice_type.as_deref() {
+        Some("function" | "custom") => return (false, true),
+        Some("tool_search") => {
+            let client_executed = choice_object
+                .get("execution")
+                .and_then(Value::as_str)
+                .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client"));
+            return (false, client_executed);
+        }
+        _ => {}
+    }
+
+    if choice_type.as_deref() != Some("allowed_tools") {
+        return (false, false);
+    }
+
+    let mut changed = false;
+    let mut has_allowed_tools = false;
+    for key in ["tools", "allowed_tools"] {
+        if let Some(value) = choice_object.get_mut(key) {
+            let (value_changed, value_has_allowed_tools) = filter_responses_lite_tool_array(value);
+            changed |= value_changed;
+            has_allowed_tools |= value_has_allowed_tools;
+        }
+    }
+    (changed, has_allowed_tools)
+}
+
+fn filter_responses_lite_tools_in_object(object: &mut Map<String, Value>) -> bool {
+    let mut changed = false;
+
+    if let Some(tools) = object.get_mut("tools") {
+        changed |= filter_responses_lite_tool_array(tools).0;
+    }
+
+    let remove_tool_choice = object
+        .get_mut("tool_choice")
+        .map(|choice| {
+            let (choice_changed, choice_valid) = filter_responses_lite_tool_choice(choice);
+            changed |= choice_changed;
+            !choice_valid
+        })
+        .unwrap_or(false);
+    if remove_tool_choice {
+        object.remove("tool_choice");
+        changed = true;
+    }
+
+    if let Some(Value::Array(input)) = object.get_mut("input") {
+        let before = input.len();
+        input.retain_mut(|item| {
+            let Some(item_object) = item.as_object_mut() else {
+                return true;
+            };
+            if !item_object
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|item_type| item_type.eq_ignore_ascii_case("additional_tools"))
+            {
+                return true;
+            }
+            changed |= filter_responses_lite_tools_in_object(item_object);
+            item_object
+                .get("tools")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| !tools.is_empty())
+        });
+        changed |= input.len() != before;
+    }
+
+    if let Some(Value::Object(response)) = object.get_mut("response") {
+        changed |= filter_responses_lite_tools_in_object(response);
+    }
+
+    changed
 }
 
 fn build_codex_client_model(model_id: &str, index: usize) -> Value {
@@ -329,9 +584,17 @@ fn normalize_responses_input_item(item: &mut Value) -> bool {
         return false;
     };
 
-    // Provider adapters use this extension to reconstruct namespaced tool calls,
-    // but the official Codex Responses endpoint rejects it on replayed input items.
-    let mut changed = obj.remove("namespace").is_some();
+    // Keep call namespaces for the sidecar's provider-specific compatibility
+    // handling, while dropping unsupported namespaces from other replayed items.
+    let preserves_namespace = matches!(
+        obj.get("type").and_then(Value::as_str),
+        Some("function_call" | "custom_tool_call" | "tool_call" | "mcp_tool_call")
+    );
+    let mut changed = if preserves_namespace {
+        false
+    } else {
+        obj.remove("namespace").is_some()
+    };
     let role = obj
         .get("role")
         .and_then(Value::as_str)
@@ -578,6 +841,118 @@ mod tests {
     }
 
     #[test]
+    fn responses_lite_keeps_only_supported_tools_in_all_declaration_locations() {
+        let mut body = json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "tools": [
+                        {"type": "function", "name": "additional_function"},
+                        {"type": "custom", "name": "additional_custom"},
+                        {"type": "tool_search", "execution": "client"},
+                        {"type": "image_generation"},
+                        {"type": "web_search"},
+                        {"type": "namespace", "name": "mcp__additional"}
+                    ]
+                },
+                {
+                    "type": "additional_tools",
+                    "tools": [{"type": "image_generation"}]
+                },
+                {"role": "user", "content": "hello"}
+            ],
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "custom", "name": "apply_patch"},
+                {"type": "tool_search", "execution": "client"},
+                {"type": "tool_search"},
+                {"type": "tool_search", "execution": "server"},
+                {"type": "image_generation"},
+                {"type": "web_search"},
+                {"type": "namespace", "name": "mcp__root"}
+            ],
+            "tool_choice": {
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [
+                    {"type": "function", "name": "lookup"},
+                    {"type": "custom", "name": "apply_patch"},
+                    {"type": "tool_search", "execution": "client"},
+                    {"type": "image_generation"},
+                    {"type": "web_search"},
+                    {"type": "namespace", "name": "mcp__root"}
+                ]
+            },
+            "response": {
+                "tools": [
+                    {"type": "function", "name": "nested_function"},
+                    {"type": "image_generation"},
+                    {"type": "web_search"}
+                ],
+                "tool_choice": {"type": "image_generation"}
+            }
+        });
+
+        assert!(normalize_responses_body_for_codex(&mut body));
+        for pointer in ["/tools", "/tool_choice/tools", "/input/0/tools"] {
+            assert_eq!(
+                body.pointer(pointer)
+                    .and_then(Value::as_array)
+                    .map(|tools| {
+                        tools
+                            .iter()
+                            .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                    }),
+                Some(vec!["function", "custom", "tool_search"]),
+                "unexpected tools at {pointer}"
+            );
+        }
+        assert_eq!(
+            body.pointer("/response/tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["function"])
+        );
+        assert!(body.pointer("/response/tool_choice").is_none());
+        assert_eq!(
+            body.get("input").and_then(Value::as_array).map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn non_lite_responses_keep_official_hosted_tools() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "image_generation"},
+                {"type": "web_search"},
+                {"type": "namespace", "name": "mcp__root"}
+            ],
+            "tool_choice": {"type": "image_generation"}
+        });
+
+        normalize_responses_body_for_codex(&mut body);
+        assert_eq!(
+            body.get("tools").and_then(Value::as_array).map(Vec::len),
+            Some(4)
+        );
+        assert_eq!(
+            body.pointer("/tool_choice/type").and_then(Value::as_str),
+            Some("image_generation")
+        );
+    }
+
+    #[test]
     fn normalizes_system_role_and_builtin_tool_aliases() {
         let mut body = json!({
             "model": "gpt-5.4",
@@ -606,16 +981,29 @@ mod tests {
     }
 
     #[test]
-    fn removes_provider_namespace_from_replayed_input_items() {
+    fn preserves_namespace_on_replayed_function_calls() {
         let mut body = json!({
             "model": "gpt-5.4",
-            "input": [{
-                "type": "function_call",
-                "call_id": "call_1",
-                "name": "lookup",
-                "namespace": "mcp__example",
-                "arguments": "{}"
-            }],
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "namespace": "mcp__example",
+                    "arguments": "{}"
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "result"
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_2",
+                    "name": "plain_lookup",
+                    "arguments": "{}"
+                }
+            ],
             "tools": [{
                 "type": "namespace",
                 "name": "mcp__example"
@@ -623,7 +1011,10 @@ mod tests {
         });
 
         assert!(normalize_responses_body_for_codex(&mut body));
-        assert!(body.pointer("/input/0/namespace").is_none());
+        assert_eq!(
+            body.pointer("/input/0/namespace").and_then(Value::as_str),
+            Some("mcp__example")
+        );
         assert_eq!(
             body.pointer("/input/0/name").and_then(Value::as_str),
             Some("lookup")
@@ -633,9 +1024,66 @@ mod tests {
             Some("call_1")
         );
         assert_eq!(
+            body.pointer("/input/1/call_id").and_then(Value::as_str),
+            Some("call_1")
+        );
+        assert_eq!(
+            body.pointer("/input/1/output").and_then(Value::as_str),
+            Some("result")
+        );
+        assert!(body.pointer("/input/2/namespace").is_none());
+        assert_eq!(
+            body.pointer("/input/2/name").and_then(Value::as_str),
+            Some("plain_lookup")
+        );
+        assert_eq!(
+            body.pointer("/input/2/call_id").and_then(Value::as_str),
+            Some("call_2")
+        );
+        assert_eq!(
             body.pointer("/tools/0/type").and_then(Value::as_str),
             Some("namespace")
         );
+    }
+
+    #[test]
+    fn preserving_supported_call_namespaces_does_not_report_change() {
+        for item_type in [
+            "function_call",
+            "custom_tool_call",
+            "tool_call",
+            "mcp_tool_call",
+        ] {
+            let mut item = json!({
+                "type": item_type,
+                "namespace": "mcp__example"
+            });
+            let expected = item.clone();
+
+            assert!(
+                !normalize_responses_input_item(&mut item),
+                "{item_type} should not report a change"
+            );
+            assert_eq!(item, expected);
+        }
+    }
+
+    #[test]
+    fn removes_namespace_from_non_call_replayed_input_items() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "namespace": "mcp__example",
+                    "content": "hello"
+                }
+            ]
+        });
+
+        assert!(normalize_responses_body_for_codex(&mut body));
+        assert!(body.pointer("/input/0/namespace").is_none());
     }
 
     #[test]
@@ -670,6 +1118,35 @@ mod tests {
             .pointer("/models/0/input_modalities")
             .and_then(Value::as_array)
             .is_some());
+    }
+
+    #[test]
+    fn codex_spark_compatibility_model_is_visible_with_a_safe_catalog_fallback() {
+        let response = build_codex_client_models_response(&[
+            "gpt-5.3-codex".to_string(),
+            "gpt-5.3-codex-spark".to_string(),
+        ]);
+        let models = response
+            .get("models")
+            .and_then(Value::as_array)
+            .expect("models should be an array");
+        let spark = models
+            .iter()
+            .find(|model| model.get("slug").and_then(Value::as_str) == Some("gpt-5.3-codex-spark"))
+            .expect("Spark should be visible to Codex clients");
+
+        assert_eq!(
+            spark.get("display_name").and_then(Value::as_str),
+            Some("GPT-5.3-Codex-Spark")
+        );
+        assert_eq!(
+            spark.get("visibility").and_then(Value::as_str),
+            Some("list")
+        );
+        assert_eq!(
+            spark.get("supported_in_api").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]
@@ -718,9 +1195,71 @@ mod tests {
             );
             assert_eq!(
                 model.get("context_window").and_then(Value::as_i64),
-                Some(372_000)
+                Some(272_000)
+            );
+            assert_eq!(
+                model.get("max_context_window").and_then(Value::as_i64),
+                Some(921_000)
+            );
+            assert_eq!(
+                model.get("tool_mode").and_then(Value::as_str),
+                Some("code_mode_only")
+            );
+            assert_eq!(
+                model.get("use_responses_lite").and_then(Value::as_bool),
+                Some(true)
+            );
+            assert_eq!(
+                model.get("shell_type").and_then(Value::as_str),
+                Some("shell_command")
+            );
+            assert_eq!(
+                model.get("apply_patch_tool_type").and_then(Value::as_str),
+                Some("freeform")
             );
         }
+    }
+
+    #[test]
+    fn model_catalog_uses_configured_display_names() {
+        let response = build_codex_client_models_response_with_model_definitions(&[
+            ("gpt-5.6-sol".to_string(), "Sol Display".to_string()),
+            ("custom-model".to_string(), "Custom Display".to_string()),
+        ]);
+        assert_eq!(
+            response
+                .pointer("/models/0/display_name")
+                .and_then(Value::as_str),
+            Some("Sol Display")
+        );
+        assert_eq!(
+            response
+                .pointer("/models/1/display_name")
+                .and_then(Value::as_str),
+            Some("Custom Display")
+        );
+    }
+
+    #[test]
+    fn custom_model_uses_general_capabilities_and_overrides_identity() {
+        let response = build_codex_client_models_response_with_model_definitions(&[
+            ("gpt-5.5".to_string(), "GPT-5.5".to_string()),
+            ("custom-model".to_string(), "Custom Model".to_string()),
+        ]);
+        let models = response["models"].as_array().expect("models array");
+        let base = &models[0];
+        let custom = &models[1];
+        assert_eq!(custom["slug"], "custom-model");
+        assert_eq!(custom["display_name"], "Custom Model");
+        assert_eq!(custom["description"], "Custom Model");
+        assert_eq!(custom["context_window"], DEFAULT_CONTEXT_WINDOW);
+        assert_eq!(custom["max_context_window"], DEFAULT_MAX_CONTEXT_WINDOW);
+        assert_eq!(
+            custom["supported_reasoning_levels"],
+            base["supported_reasoning_levels"]
+        );
+        assert_eq!(custom["input_modalities"], base["input_modalities"]);
+        assert_eq!(custom["visibility"], "list");
     }
 
     #[test]

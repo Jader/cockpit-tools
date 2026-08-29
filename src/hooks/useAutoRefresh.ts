@@ -8,7 +8,6 @@ import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountS
 import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
-import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useGrokAccountStore } from '../stores/useGrokAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
@@ -21,7 +20,6 @@ import { getGitHubCopilotAccountDisplayEmail } from '../types/githubCopilot';
 import { getWindsurfAccountDisplayEmail } from '../types/windsurf';
 import { getKiroAccountDisplayEmail } from '../types/kiro';
 import { getCursorAccountDisplayEmail } from '../types/cursor';
-import { getGeminiAccountDisplayEmail } from '../types/gemini';
 import { getGrokAccountDisplayEmail } from '../types/grok';
 import { getClaudeAccountDisplayEmail } from '../types/claude';
 import { getCodebuddyAccountDisplayEmail } from '../types/codebuddy';
@@ -46,6 +44,14 @@ import {
 } from '../utils/autoRefreshScheduler';
 import { CURRENT_ACCOUNT_CHANGED_EVENT } from '../utils/accountSyncEvents';
 import { refreshCodexApiKeyUsageForAccounts } from '../services/codexApiKeyUsageRefreshService';
+import * as codexService from '../services/codexService';
+import {
+  getCodexAccountGroups,
+  getCodexCustomQuotaRefreshAccountIdsByMinutes,
+  getCodexInheritPlatformQuotaRefreshAccountIds,
+  resolveCodexGroupQuotaAutoRefreshMinutes,
+} from '../services/codexAccountGroupService';
+import { isCodexApiKeyAccount, isCodexNewApiAccount } from '../types/codex';
 
 interface GeneralConfig {
   language: string;
@@ -59,9 +65,7 @@ interface GeneralConfig {
   windsurf_auto_refresh_minutes: number;
   kiro_auto_refresh_minutes: number;
   cursor_auto_refresh_minutes: number;
-  gemini_auto_refresh_minutes: number;
   grok_auto_refresh_minutes: number;
-  gemini_sync_wsl: boolean;
   codebuddy_auto_refresh_minutes: number;
   codebuddy_cn_auto_refresh_minutes: number;
   workbuddy_auto_refresh_minutes: number;
@@ -94,8 +98,6 @@ interface GeneralConfig {
   codex_launch_on_switch?: boolean;
   cursor_quota_alert_enabled?: boolean;
   cursor_quota_alert_threshold?: number;
-  gemini_quota_alert_enabled?: boolean;
-  gemini_quota_alert_threshold?: number;
   grok_quota_alert_enabled?: boolean;
   grok_quota_alert_threshold?: number;
 }
@@ -192,7 +194,6 @@ function getCurrentAccountEmails(): Record<CurrentAccountRefreshPlatform, string
     windsurf: getProviderEmail(useWindsurfAccountStore, getWindsurfAccountDisplayEmail),
     kiro: getProviderEmail(useKiroAccountStore, getKiroAccountDisplayEmail),
     cursor: getProviderEmail(useCursorAccountStore, getCursorAccountDisplayEmail),
-    gemini: getProviderEmail(useGeminiAccountStore, getGeminiAccountDisplayEmail),
     grok: getProviderEmail(useGrokAccountStore, getGrokAccountDisplayEmail),
     codebuddy: getProviderEmail(useCodebuddyAccountStore, getCodebuddyAccountDisplayEmail),
     codebuddy_cn: getProviderEmail(useCodebuddyCnAccountStore, getCodebuddyAccountDisplayEmail),
@@ -212,7 +213,6 @@ export function useAutoRefresh() {
   const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
   const fetchCurrentAccount = useAccountStore((state) => state.fetchCurrentAccount);
 
-  const refreshAllCodexQuotas = useCodexAccountStore((state) => state.refreshAllQuotas);
   const fetchCodexAccounts = useCodexAccountStore((state) => state.fetchAccounts);
   const fetchCurrentCodexAccount = useCodexAccountStore((state) => state.fetchCurrentAccount);
   const refreshAllClaudeQuotas = useClaudeAccountStore((state) => state.refreshAllTokens);
@@ -230,9 +230,6 @@ export function useAutoRefresh() {
   const refreshAllCursorTokens = useCursorAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentCursorAccountId = useCursorAccountStore((state) => state.fetchCurrentAccountId);
   const refreshCursorToken = useCursorAccountStore((state) => state.refreshToken);
-  const refreshAllGeminiTokens = useGeminiAccountStore((state) => state.refreshAllTokens);
-  const fetchCurrentGeminiAccountId = useGeminiAccountStore((state) => state.fetchCurrentAccountId);
-  const refreshGeminiToken = useGeminiAccountStore((state) => state.refreshToken);
   const refreshAllGrokTokens = useGrokAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentGrokAccountId = useGrokAccountStore((state) => state.fetchCurrentAccountId);
   const refreshGrokToken = useGrokAccountStore((state) => state.refreshToken);
@@ -271,8 +268,6 @@ export function useAutoRefresh() {
   const kiroCurrentRefreshingRef = useRef(false);
   const cursorRefreshingRef = useRef(false);
   const cursorCurrentRefreshingRef = useRef(false);
-  const geminiRefreshingRef = useRef(false);
-  const geminiCurrentRefreshingRef = useRef(false);
   const grokRefreshingRef = useRef(false);
   const grokCurrentRefreshingRef = useRef(false);
   const codebuddyRefreshingRef = useRef(false);
@@ -425,6 +420,30 @@ export function useAutoRefresh() {
             await refreshProviderToken(accountId);
           };
 
+          // Codex 分组额度策略：继承平台 / 自定义间隔 / 不刷新（最高优先级）
+          const codexGroups = await getCodexAccountGroups().catch(() => []);
+          const codexCurrentAccount = useCodexAccountStore.getState().currentAccount;
+          let codexCurrentMinutes = resolveCurrentMinutes(
+            'codex',
+            currentAccountEmails.codex,
+            currentRefreshMinutesMap,
+          );
+          if (codexCurrentAccount?.id) {
+            const group = codexGroups.find((item) =>
+              item.accountIds.includes(codexCurrentAccount.id),
+            );
+            const policy = resolveCodexGroupQuotaAutoRefreshMinutes(group);
+            if (policy === -1) {
+              codexCurrentMinutes = -1;
+            } else if (typeof policy === 'number' && policy > 0) {
+              codexCurrentMinutes = policy;
+            }
+          }
+          const codexCustomRefreshByMinutes =
+            await getCodexCustomQuotaRefreshAccountIdsByMinutes().catch(
+              () => new Map<number, string[]>(),
+            );
+
           const descriptors: PlatformRefreshDescriptor[] = [
             {
               key: 'antigravity',
@@ -434,7 +453,7 @@ export function useAutoRefresh() {
               fullRefreshingRef: antigravityRefreshingRef,
               currentRefreshingRef: antigravityCurrentRefreshingRef,
               runFullRefresh: async () => {
-                await refreshAllQuotas();
+                await refreshAllQuotas('auto');
               },
               runCurrentRefresh: async () => {
                 if (!useAccountStore.getState().currentAccount?.id) {
@@ -452,18 +471,34 @@ export function useAutoRefresh() {
               key: 'codex',
               label: 'Codex',
               intervalMinutes: config.codex_auto_refresh_minutes,
-              currentMinutes: resolveCurrentMinutes('codex', currentAccountEmails.codex, currentRefreshMinutesMap),
+              currentMinutes: codexCurrentMinutes,
               fullRefreshingRef: codexRefreshingRef,
               currentRefreshingRef: codexCurrentRefreshingRef,
               runFullRefresh: async () => {
                 try {
-                  await refreshAllCodexQuotas();
+                  // 平台间隔只刷「继承平台 + 未分组」；自定义间隔分组由独立任务负责
+                  const accounts = useCodexAccountStore.getState().accounts;
+                  const refreshableIds = accounts
+                    .filter(
+                      (account) =>
+                        !isCodexApiKeyAccount(account) || isCodexNewApiAccount(account),
+                    )
+                    .map((account) => account.id);
+                  const inheritIds =
+                    await getCodexInheritPlatformQuotaRefreshAccountIds(refreshableIds);
+                  if (inheritIds.length > 0) {
+                    await codexService.refreshCodexQuotasBatch(inheritIds, {
+                      respectGroupQuotaRefresh: true,
+                    });
+                  }
                 } finally {
                   await refreshCodexApiKeyUsageForAccounts(
                     useCodexAccountStore.getState().accounts,
                   ).catch((error) => {
                     console.error('[AutoRefresh] Codex API Key usage refresh failed:', error);
                   });
+                  await fetchCodexAccounts();
+                  await fetchCurrentCodexAccount();
                 }
               },
               runCurrentRefresh: async () => {
@@ -517,7 +552,7 @@ export function useAutoRefresh() {
             },
             {
               key: 'windsurf',
-              label: 'Windsurf',
+              label: 'Devin',
               intervalMinutes: config.windsurf_auto_refresh_minutes,
               currentMinutes: resolveCurrentMinutes('windsurf', currentAccountEmails.windsurf, currentRefreshMinutesMap),
               fullRefreshingRef: windsurfRefreshingRef,
@@ -558,20 +593,6 @@ export function useAutoRefresh() {
               },
               runCurrentRefresh: async () => {
                 await runProviderCurrentRefresh(fetchCurrentCursorAccountId, refreshCursorToken);
-              },
-            },
-            {
-              key: 'gemini',
-              label: 'Gemini',
-              intervalMinutes: config.gemini_auto_refresh_minutes,
-              currentMinutes: resolveCurrentMinutes('gemini', currentAccountEmails.gemini, currentRefreshMinutesMap),
-              fullRefreshingRef: geminiRefreshingRef,
-              currentRefreshingRef: geminiCurrentRefreshingRef,
-              runFullRefresh: async () => {
-                await refreshAllGeminiTokens();
-              },
-              runCurrentRefresh: async () => {
-                await runProviderCurrentRefresh(fetchCurrentGeminiAccountId, refreshGeminiToken);
               },
             },
             {
@@ -795,6 +816,42 @@ export function useAutoRefresh() {
             }
           }
 
+          // Codex 分组自定义间隔：独立调度（最高优先级，不依赖平台间隔是否开启）
+          for (const [minutes, accountIds] of codexCustomRefreshByMinutes.entries()) {
+            if (minutes <= 0 || accountIds.length === 0) {
+              continue;
+            }
+            const uniqueIds = [...new Set(accountIds.filter(Boolean))];
+            if (uniqueIds.length === 0) {
+              continue;
+            }
+            console.log(
+              `[AutoRefresh] Codex 分组自定义刷新: 每 ${minutes} 分钟, accounts=${uniqueIds.length}`,
+            );
+            tasks.push({
+              key: `full:codex-group:${minutes}`,
+              label: `Codex 分组自定义刷新 (${minutes}m)`,
+              intervalMs: minutesToMs(minutes),
+              run: () =>
+                executeWithGuard(
+                  codexRefreshingRef,
+                  async () => {
+                    try {
+                      // 自定义分组任务目标明确，不因「不刷新」外的策略再过滤
+                      await codexService.refreshCodexQuotasBatch(uniqueIds, {
+                        respectGroupQuotaRefresh: false,
+                      });
+                    } finally {
+                      await fetchCodexAccounts();
+                      await fetchCurrentCodexAccount();
+                    }
+                  },
+                  `[AutoRefresh] 触发 Codex 分组自定义刷新 (${minutes}m)...`,
+                  `[AutoRefresh] Codex 分组自定义刷新失败 (${minutes}m):`,
+                ),
+            });
+          }
+
           if (tasks.length > 0) {
             const scheduler = createAutoRefreshScheduler(tasks, {
               tickMs: AUTO_REFRESH_TICK_MS,
@@ -831,7 +888,6 @@ export function useAutoRefresh() {
     fetchCurrentCodebuddyCnAccountId,
     fetchCurrentCodexAccount,
     fetchCurrentCursorAccountId,
-    fetchCurrentGeminiAccountId,
     fetchCurrentGrokAccountId,
     fetchCurrentGhcpAccountId,
     fetchCurrentKiroAccountId,
@@ -844,10 +900,8 @@ export function useAutoRefresh() {
     fetchAccounts,
     refreshAllCodebuddyCnTokens,
     refreshAllCodebuddyTokens,
-    refreshAllCodexQuotas,
     refreshAllClaudeQuotas,
     refreshAllCursorTokens,
-    refreshAllGeminiTokens,
     refreshAllGrokTokens,
     refreshAllGhcpTokens,
     refreshAllKiroTokens,
@@ -861,7 +915,6 @@ export function useAutoRefresh() {
     refreshCodebuddyToken,
     refreshClaudeQuota,
     refreshCursorToken,
-    refreshGeminiToken,
     refreshGrokToken,
     refreshGhcpToken,
     refreshKiroToken,

@@ -41,6 +41,7 @@ import {
 } from '../utils/externalProviderImport';
 import { useDropdownPanelPlacement } from './useDropdownPanelPlacement';
 import { useEscClose } from './useEscClose';
+import { useEnterConfirm } from './useEnterConfirm';
 import {
   ACCOUNTS_OVERVIEW_FILTER_PERSISTENCE_CHANGED_EVENT,
   type AccountsOverviewFilterPersistenceChangedDetail,
@@ -53,6 +54,7 @@ import {
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence';
 import { normalizeTimestamp } from '../utils/dataExtract';
+import { presentWindowsOperationError } from '../utils/windowsOperationDialog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,8 +93,12 @@ export type ViewMode = 'grid' | 'list';
 export type SortDirection = 'asc' | 'desc';
 
 /** 各平台需要提供的 OAuth 服务函数 */
+export interface OAuthStartOptions {
+  tabKey: string;
+}
+
 export interface OAuthService {
-  startLogin: () => Promise<OAuthStartResponse>;
+  startLogin: (options?: OAuthStartOptions) => Promise<OAuthStartResponse>;
   completeLogin: (loginId: string) => Promise<unknown>;
   cancelLogin: (loginId?: string) => Promise<void>;
   submitCallbackUrl?: (loginId: string, callbackUrl: string) => Promise<void>;
@@ -118,6 +124,7 @@ export interface ProviderDataService {
   addWithToken?: (token: string) => Promise<unknown>;
   exportAccounts: (ids: string[]) => Promise<string>;
   injectToVSCode?: (accountId: string) => Promise<unknown>;
+  openWebview?: (accountId: string) => Promise<unknown>;
 }
 
 /** 各平台 store 需要提供的操作 */
@@ -154,6 +161,8 @@ export interface ProviderPageConfig<TAccount extends ProviderAccountBase> {
   oauthService?: OAuthService;
   /** 触发 OAuth 流程的 addTab key，默认 ['oauth'] */
   oauthTabKeys?: string[];
+  /** 是否在进入 OAuth 标签后自动开始；可用于需要先填写登录参数的平台。 */
+  oauthAutoPrepare?: boolean | ((tabKey: string) => boolean);
   /** 数据服务 */
   dataService: ProviderDataService;
   /** 获取展示用 email/displayName */
@@ -171,6 +180,15 @@ export interface ProviderPageConfig<TAccount extends ProviderAccountBase> {
   /** 首次渲染时使用的搜索内容 */
   initialSearchQuery?: string;
   defaultSortBy?: string;
+  /**
+   * 自定义删除确认的 Enter 行为（例如 Codex 批量删除）。
+   * 未提供时 Enter 调用内置 confirmDelete。
+   */
+  onEnterConfirmDelete?: () => void | Promise<void>;
+  /** 额外的删除确认忙碌态（与 deleting 叠加，为 true 时禁用 Enter） */
+  isDeleteConfirmBusy?: boolean;
+  /** 关闭内置删除确认的 Enter 绑定（页面自行 useEnterConfirm 时使用） */
+  disableEnterConfirmDelete?: boolean;
 }
 
 export interface ProviderAccountBase {
@@ -700,6 +718,7 @@ export interface UseProviderAccountsPageReturn {
   tokenInput: string;
   setTokenInput: (v: string) => void;
   importing: boolean;
+  setImporting: (v: boolean) => void;
   openAddModal: (tab: string) => void;
   closeAddModal: () => void;
   resetAddModalState: () => void;
@@ -727,6 +746,7 @@ export interface UseProviderAccountsPageReturn {
   oauthManualCallbackSubmitting: boolean;
   oauthManualCallbackError: string | null;
   oauthSupportsManualCallback: boolean;
+  prepareOauthUrl: () => void;
   handleCopyOauthUrl: () => Promise<void>;
   handleCopyOauthUserCode: () => Promise<void>;
   handleRetryOauth: () => void;
@@ -737,6 +757,10 @@ export interface UseProviderAccountsPageReturn {
 
   // Inject / Switch
   handleInjectToVSCode: ((accountId: string) => Promise<void>) | null;
+
+  // WebView（网页会话）
+  handleOpenWebview: ((accountId: string) => Promise<void>) | null;
+  webviewing: string | null;
 
   // Flow notice
   isFlowNoticeCollapsed: boolean;
@@ -773,6 +797,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     store,
     oauthService,
     oauthTabKeys: oauthTabKeysConfig,
+    oauthAutoPrepare: oauthAutoPrepareConfig,
     dataService,
     initialSearchQuery: initialSearchQueryConfig,
     defaultSortBy: defaultSortByConfig,
@@ -796,6 +821,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     currentAccountId: storeCurrentAccountId,
     error: storeError,
     fetchAccounts,
+    fetchCurrentAccountId: storeFetchCurrentAccountId,
     deleteAccounts,
     refreshToken,
     refreshAllTokens,
@@ -889,6 +915,10 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
 
   // ─── Sort ─────────────────────────────────────────────────────────────
   const [sortBy, setSortBy] = useState<string>(() => {
+    // Explicit default (e.g. Codex custom-sort active flag) wins over stale saved sort (#1123).
+    if (defaultSortBy === 'custom') {
+      return 'custom';
+    }
     if (!readAccountsOverviewFilterPersistenceEnabled(filterPersistenceScope)) {
       return defaultSortBy;
     }
@@ -1236,6 +1266,8 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
         return next;
       });
       setDeleteConfirm(null);
+      // 删除成功后清掉页顶红色报错，避免旧错误残留（#1160）
+      setMessage(null);
     } catch (error) {
       setDeleteConfirmError(
         t('messages.actionFailed', {
@@ -1259,11 +1291,18 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
       const displayEmail = account ? config.getDisplayEmail(account) : accountId;
       try {
         await injectFn(accountId);
-        setCurrentAccountId(accountId);
+        // Grok：以后端为准（关闭「切号同步官方登录」时不应有「当前账号」）。
+        // 其他平台仍乐观标记当前账号，避免 resolver 短暂为空导致标识闪烁。
+        let resolvedCurrentAccountId: string | null = accountId;
+        if (platformKey === 'grok' && storeFetchCurrentAccountId) {
+          resolvedCurrentAccountId = await storeFetchCurrentAccountId();
+        } else {
+          setCurrentAccountId(accountId);
+        }
         if (platformId) {
           await emitCurrentAccountChanged({
             platformId,
-            accountId,
+            accountId: resolvedCurrentAccountId,
             reason: 'switch',
           });
         }
@@ -1280,6 +1319,39 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
           }
         }
       } catch (e: unknown) {
+        const retrySwitch = async () => {
+          await injectFn(accountId);
+          let resolvedCurrentAccountId: string | null = accountId;
+          if (platformKey === 'grok' && storeFetchCurrentAccountId) {
+            resolvedCurrentAccountId = await storeFetchCurrentAccountId();
+          } else {
+            setCurrentAccountId(accountId);
+          }
+          if (platformId) {
+            await emitCurrentAccountChanged({
+              platformId,
+              accountId: resolvedCurrentAccountId,
+              reason: 'switch',
+            });
+          }
+          setMessage({ text: t('messages.switched', { email: maskAccountText(displayEmail) }) });
+          await Promise.resolve(config.onInjectSuccess?.({
+            accountId,
+            account,
+            displayEmail,
+          }));
+        };
+        if (
+          presentWindowsOperationError({
+            error: e,
+            operation: 'launch_app',
+            retry: retrySwitch,
+            manualContinue: retrySwitch,
+          })
+        ) {
+          setInjecting(null);
+          return;
+        }
         setMessage({
           text: t('messages.switchFailed', {
             error: String(e) || t('common.failed', 'Failed'),
@@ -1289,7 +1361,46 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
       }
       setInjecting(null);
     };
-  }, [accounts, config, dataService.injectToVSCode, maskAccountText, platformId, platformKey, t]);
+  }, [
+    accounts,
+    config,
+    dataService.injectToVSCode,
+    maskAccountText,
+    platformId,
+    platformKey,
+    storeFetchCurrentAccountId,
+    t,
+  ]);
+
+  // ─── WebView（网页会话） ───────────────────────────────────────────────
+  const [webviewing, setWebviewing] = useState<string | null>(null);
+  const handleOpenWebview = useMemo(() => {
+    if (!dataService.openWebview) return null;
+    const openFn = dataService.openWebview;
+    return async (accountId: string) => {
+      setMessage(null);
+      setWebviewing(accountId);
+      const account = accounts.find((item) => item.id === accountId);
+      const displayEmail = account ? config.getDisplayEmail(account) : accountId;
+      try {
+        await openFn(accountId);
+        setMessage({
+          text: t('workbuddy.webview.opened', '已打开网页会话：{{email}}', {
+            email: maskAccountText(displayEmail),
+          }),
+          tone: 'success',
+        });
+      } catch (e: unknown) {
+        setMessage({
+          text: t('workbuddy.webview.openFailed', '打开网页会话失败：{{error}}', {
+            error: String(e) || t('common.failed', 'Failed'),
+          }),
+          tone: 'error',
+        });
+      }
+      setWebviewing(null);
+    };
+  }, [accounts, config, dataService.openWebview, maskAccountText, t]);
 
   // ─── Export ───────────────────────────────────────────────────────────
   const handleExportError = useCallback(
@@ -1440,6 +1551,23 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
   }, [cancelPendingOauthLogin, resetAddModalState]);
 
   useEscClose(showAddModal, closeAddModal);
+  // Delete / tag-delete secondary confirms: Enter = confirm (stack-safe with nested dialogs)
+  const deleteConfirmBusy = deleting || Boolean(config.isDeleteConfirmBusy);
+  useEscClose(Boolean(deleteConfirm) && !deleteConfirmBusy, () => setDeleteConfirm(null));
+  useEnterConfirm(
+    Boolean(deleteConfirm) && !deleteConfirmBusy && !config.disableEnterConfirmDelete,
+    () => {
+      if (config.onEnterConfirmDelete) {
+        void config.onEnterConfirmDelete();
+        return;
+      }
+      void confirmDelete();
+    },
+  );
+  useEscClose(Boolean(tagDeleteConfirm) && !deletingTag, () => setTagDeleteConfirm(null));
+  useEnterConfirm(Boolean(tagDeleteConfirm) && !deletingTag, () => {
+    void confirmDeleteTag();
+  });
 
   const closeExternalImportProgressModal = useCallback(() => {
     setExternalImportProgress((current) => {
@@ -1826,7 +1954,9 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
 
     try {
       let importedCount = 0;
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      // 「粘贴 JSON」页签只走 JSON 导入；Token/API Key 页签仍兼容 JSON 与纯 token
+      const preferJsonOnly = addTab === 'paste';
+      if (preferJsonOnly || trimmed.startsWith('{') || trimmed.startsWith('[')) {
         const imported = await dataService.importFromJson(trimmed);
         importedCount = imported.length;
       } else if (dataService.addWithToken) {
@@ -1865,7 +1995,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
       );
     }
     setImporting(false);
-  }, [dataService, fetchAccounts, platformId, resetAddModalState, t, tokenInput]);
+  }, [addTab, dataService, fetchAccounts, platformId, resetAddModalState, t, tokenInput]);
 
   useEffect(() => {
     if (
@@ -2019,7 +2149,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
 
     void (async () => {
       try {
-        const resp = await oauthService.startLogin();
+        const resp = await oauthService.startLogin({ tabKey: addTabRef.current });
         started = true;
 
         if (attemptSeq !== oauthAttemptSeqRef.current) {
@@ -2097,9 +2227,13 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
 
   // Auto-prepare OAuth when modal opens on oauth tab
   useEffect(() => {
-    if (!showAddModal || !oauthTabKeys.includes(addTab) || oauthUrl) return;
+    const shouldAutoPrepare =
+      typeof oauthAutoPrepareConfig === 'function'
+        ? oauthAutoPrepareConfig(addTab)
+        : oauthAutoPrepareConfig !== false;
+    if (!showAddModal || !oauthTabKeys.includes(addTab) || oauthUrl || !shouldAutoPrepare) return;
     prepareOauthUrl();
-  }, [showAddModal, addTab, oauthUrl, prepareOauthUrl, oauthTabKeys]);
+  }, [showAddModal, addTab, oauthUrl, prepareOauthUrl, oauthTabKeys, oauthAutoPrepareConfig]);
 
   // Cancel OAuth when modal closes or tab changes
   useEffect(() => {
@@ -2435,6 +2569,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     (timestamp: number) => {
       const normalized = normalizeTimestamp(timestamp);
       const d = new Date((normalized ?? 0) * 1000);
+      // 固定 24 小时制，避免 en-US 等 locale 显示 12 小时制分不清上下午（#859）
       return (
         d.toLocaleDateString(locale, {
           year: 'numeric',
@@ -2442,7 +2577,11 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
           day: '2-digit',
         }) +
         ' ' +
-        d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+        d.toLocaleTimeString(locale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
       );
     },
     [locale],
@@ -2541,6 +2680,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     tokenInput,
     setTokenInput,
     importing,
+    setImporting,
     openAddModal,
     closeAddModal,
     resetAddModalState,
@@ -2566,6 +2706,7 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     oauthManualCallbackSubmitting,
     oauthManualCallbackError,
     oauthSupportsManualCallback,
+    prepareOauthUrl,
     handleCopyOauthUrl,
     handleCopyOauthUserCode,
     handleRetryOauth,
@@ -2574,6 +2715,8 @@ export function useProviderAccountsPage<TAccount extends ProviderAccountBase>(
     handleOpenOauthUrlWithMode,
     handleSubmitOauthCallbackUrl,
     handleInjectToVSCode,
+    handleOpenWebview,
+    webviewing,
     isFlowNoticeCollapsed,
     setIsFlowNoticeCollapsed,
     currentAccountId,

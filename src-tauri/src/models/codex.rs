@@ -37,6 +37,22 @@ impl Default for CodexApiProviderMode {
     }
 }
 
+/// Cockpit 管理的 Codex 模型目录条目
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexExperimentalModelDefinition {
+    pub model_id: String,
+    pub display_name: String,
+    /// None 表示跟随官方推理强度；Some 表示用户自定义可选推理强度集合。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_efforts: Option<Vec<String>>,
+    /// None 表示跟随模型目录元数据；Some 表示用户为该模型指定上下文窗口。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<i64>,
+    /// None 表示跟随模型目录元数据；Some 表示用户为该模型指定自动压缩阈值。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_compact_token_limit: Option<i64>,
+}
+
 /// Codex config.toml 快捷配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexQuickConfig {
@@ -46,6 +62,19 @@ pub struct CodexQuickConfig {
     pub detected_model_context_window: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detected_auto_compact_token_limit: Option<i64>,
+    #[serde(default)]
+    pub experimental_model_catalog_enabled: bool,
+    #[serde(default)]
+    pub experimental_model_catalog_available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental_model_catalog_unavailable_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental_model_catalog_conflict: Option<String>,
+    #[serde(default)]
+    pub experimental_model_catalog_models: Vec<CodexExperimentalModelDefinition>,
+    /// 当前可见模型目录中写入 Codex config.toml 的默认模型；None 表示不强制指定。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental_model_catalog_default_model_id: Option<String>,
 }
 
 /// Codex 官方 App 推理速度
@@ -70,6 +99,13 @@ pub struct CodexAppSpeedConfig {
     pub global_state_path: String,
 }
 
+/// API 服务账号级模型映射：调用方请求的模型 → 发给上游的模型。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexApiModelMapping {
+    pub client_model: String,
+    pub upstream_model: String,
+}
+
 /// Codex 账号数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexAccount {
@@ -89,6 +125,14 @@ pub struct CodexAccount {
     pub api_provider_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_model_catalog: Vec<String>,
+    /// 供应商目录里按模型覆盖的 `context_window`。未填写时走官方值或全局兜底。
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub api_model_context_windows: HashMap<String, i64>,
+    /// API 服务按账号改写：调用方请求的模型 → 发给上游的模型。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub api_model_mappings: Vec<CodexApiModelMapping>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub api_sync_model_catalog_to_codex: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_wire_api: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -99,9 +143,15 @@ pub struct CodexAccount {
     pub api_model_vision_support: HashMap<String, bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_vision_routing_model: Option<String>,
+    /// DeepSeek Responses: `gateway` lists official shells via instance sidecar; `direct` talks to api.deepseek.com.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_instance_access_mode: Option<String>,
+    /// Direct-start model for official DeepSeek Responses (`deepseek-v4-flash` / `deepseek-v4-pro`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_startup_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_oauth_account_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub bound_oauth_use_local_gateway: bool,
     pub user_id: Option<String>,
     pub plan_type: Option<String>,
@@ -112,11 +162,22 @@ pub struct CodexAccount {
     pub account_id: Option<String>,
     pub organization_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_identity: Option<CodexAgentIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_structure: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_note: Option<String>,
+    /// Codex OAuth 设备指纹收敛模式。未设置时按 `off` 处理。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_fingerprint_mode: Option<String>,
+    /// 仅允许该 OAuth 账号接收官方 Codex 客户端请求。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub codex_cli_only: bool,
+    /// 该账号额外允许 Codex app-server 第三方客户端请求。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub codex_cli_only_allow_app_server: bool,
     #[serde(
         default,
         alias = "twoFactorSecret",
@@ -167,6 +228,18 @@ pub struct CodexAccount {
     pub requires_reauth: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reauth_reason: Option<String>,
+    /// 官方客户端实际页面认证状态，由实例 CDP 只读观察更新。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_auth_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_client_auth_observed_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_client_login_redirect_at: Option<i64>,
+    /// 最近一次启动并开始观测该 Codex 实例的时间（Unix seconds）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_client_launch_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_client_auth_instance_id: Option<String>,
     pub quota: Option<CodexQuota>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_error: Option<CodexQuotaErrorInfo>,
@@ -192,6 +265,27 @@ pub struct CodexTokens {
     pub access_token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
+}
+
+/// Codex Agent Identity credentials from the official auth.json format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexAgentIdentity {
+    #[serde(alias = "agentRuntimeId")]
+    pub agent_runtime_id: String,
+    #[serde(alias = "agentPrivateKey")]
+    pub agent_private_key: String,
+    #[serde(default, alias = "taskId", skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(alias = "accountId")]
+    pub account_id: String,
+    #[serde(alias = "chatgptUserId")]
+    pub chatgpt_user_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, alias = "planType", skip_serializing_if = "Option::is_none")]
+    pub plan_type: Option<String>,
+    #[serde(default, alias = "chatgptAccountIsFedramp")]
+    pub chatgpt_account_is_fedramp: bool,
 }
 
 /// Codex 配额数据（5小时配额 + 周配额）
@@ -276,6 +370,15 @@ pub struct CodexAuthFile {
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<CodexAuthTokens>,
+    #[serde(
+        default,
+        alias = "agentIdentity",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_identity: Option<CodexAgentIdentity>,
+    /// Official personal access token auth shape (`at-*` only, no refresh/id token).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_access_token: Option<String>,
     #[serde(default)]
     pub last_refresh: Option<serde_json::Value>, // 可以是字符串或数字
 }
@@ -377,11 +480,16 @@ impl CodexAccount {
             api_provider_id: None,
             api_provider_name: None,
             api_model_catalog: Vec::new(),
+            api_model_context_windows: HashMap::new(),
+            api_model_mappings: Vec::new(),
+            api_sync_model_catalog_to_codex: false,
             api_wire_api: None,
             api_supports_websockets: false,
             api_supports_vision: false,
             api_model_vision_support: HashMap::new(),
             api_vision_routing_model: None,
+            api_instance_access_mode: None,
+            api_startup_model: None,
             bound_oauth_account_id: None,
             bound_oauth_use_local_gateway: false,
             user_id: None,
@@ -390,9 +498,13 @@ impl CodexAccount {
             auth_file_plan_type: None,
             account_id: None,
             organization_id: None,
+            agent_identity: None,
             account_name: None,
             account_structure: None,
             account_note: None,
+            codex_fingerprint_mode: None,
+            codex_cli_only: false,
+            codex_cli_only_allow_app_server: false,
             two_factor_secret: None,
             account_password: None,
             phone_number: None,
@@ -405,6 +517,11 @@ impl CodexAccount {
             authorization_status: None,
             requires_reauth: false,
             reauth_reason: None,
+            client_auth_status: None,
+            last_client_auth_observed_at: None,
+            last_client_login_redirect_at: None,
+            last_client_launch_at: None,
+            last_client_auth_instance_id: None,
             quota: None,
             quota_error: None,
             usage_updated_at: None,
@@ -444,6 +561,7 @@ impl CodexAccount {
         account.api_provider_id = api_provider_id;
         account.api_provider_name = api_provider_name;
         account.api_model_catalog = api_model_catalog;
+        account.api_sync_model_catalog_to_codex = false;
         account.api_wire_api = None;
         account.api_supports_websockets = false;
         account.api_supports_vision = false;
@@ -455,6 +573,15 @@ impl CodexAccount {
 
     pub fn is_api_key_auth(&self) -> bool {
         self.auth_mode == CodexAuthMode::Apikey
+    }
+
+    pub fn is_agent_identity_auth(&self) -> bool {
+        self.agent_identity.is_some()
+    }
+
+    /// ChatGPT Web Session 导入账号：仅支持查看额度，不可启动/切号/加入 API 服务。
+    pub fn is_web_session_auth(&self) -> bool {
+        self.token_source_mode.trim() == "chatgpt_web_session"
     }
 
     pub fn update_last_used(&mut self) {
@@ -486,5 +613,6 @@ mod tests {
 
         let restored: CodexAccount = serde_json::from_value(value).expect("deserialize account");
         assert!(!restored.api_supports_websockets);
+        assert!(!restored.api_sync_model_catalog_to_codex);
     }
 }

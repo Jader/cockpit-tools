@@ -52,7 +52,6 @@ import * as githubCopilotService from './githubCopilotService';
 import * as windsurfService from './windsurfService';
 import * as kiroService from './kiroService';
 import * as cursorService from './cursorService';
-import * as geminiService from './geminiService';
 import * as grokService from './grokService';
 import * as codebuddyService from './codebuddyService';
 import * as codebuddyCnService from './codebuddyCnService';
@@ -75,7 +74,6 @@ const INSTANCE_PLATFORMS = [
   'windsurf',
   'kiro',
   'cursor',
-  'gemini',
   'grok',
   'codebuddy',
   'codebuddy_cn',
@@ -107,11 +105,15 @@ interface RawUserConfig extends Record<string, unknown> {
   auto_switch_selected_account_ids?: string[];
   codex_auto_switch_selected_account_ids?: string[];
   webdav_sync_password?: string;
+  backup_directory?: string;
 }
 
 interface ExportedUserConfig extends Omit<
   RawUserConfig,
-  'auto_switch_selected_account_ids' | 'codex_auto_switch_selected_account_ids' | 'webdav_sync_password'
+  | 'auto_switch_selected_account_ids'
+  | 'codex_auto_switch_selected_account_ids'
+  | 'webdav_sync_password'
+  | 'backup_directory'
 > {
   auto_switch_selected_account_refs: DataTransferAccountRef[];
   codex_auto_switch_selected_account_refs: DataTransferAccountRef[];
@@ -281,6 +283,7 @@ const ACCOUNT_LOADERS: Record<PlatformId, AccountLoader> = {
   antigravity_ide: async () =>
     (await accountService.listAccounts()) as unknown as TransferAccountRecord[],
   codex: async () => (await codexService.listCodexAccounts()) as unknown as TransferAccountRecord[],
+  codex_api_service: async () => [],
   claude_manager: listClaudeManagerTransferAccounts,
   zed: async () => (await zedService.listZedAccounts()) as unknown as TransferAccountRecord[],
   'github-copilot': async () =>
@@ -288,7 +291,6 @@ const ACCOUNT_LOADERS: Record<PlatformId, AccountLoader> = {
   windsurf: async () => (await windsurfService.listWindsurfAccounts()) as unknown as TransferAccountRecord[],
   kiro: async () => (await kiroService.listKiroAccounts()) as unknown as TransferAccountRecord[],
   cursor: async () => (await cursorService.listCursorAccounts()) as unknown as TransferAccountRecord[],
-  gemini: async () => (await geminiService.listGeminiAccounts()) as unknown as TransferAccountRecord[],
   grok: async () => (await grokService.listGrokAccounts()) as unknown as TransferAccountRecord[],
   codebuddy: async () => (await codebuddyService.listCodebuddyAccounts()) as unknown as TransferAccountRecord[],
   codebuddy_cn: async () =>
@@ -306,13 +308,13 @@ const LEGACY_IMPORTERS: Record<PlatformId, ((jsonContent: string) => Promise<unk
   antigravity: accountService.importFromJson,
   antigravity_ide: accountService.importFromJson,
   codex: codexService.importCodexFromJson,
+  codex_api_service: undefined,
   claude_manager: claudeService.importClaudeFromJson,
   zed: zedService.importZedFromJson,
   'github-copilot': githubCopilotService.importGitHubCopilotFromJson,
   windsurf: windsurfService.importWindsurfFromJson,
   kiro: kiroService.importKiroFromJson,
   cursor: cursorService.importCursorFromJson,
-  gemini: geminiService.importGeminiFromJson,
   grok: undefined,
   codebuddy: codebuddyService.importCodebuddyFromJson,
   codebuddy_cn: codebuddyCnService.importCodebuddyCnFromJson,
@@ -476,7 +478,6 @@ function buildAccountRef(platform: PlatformId, account: TransferAccountRecord): 
       ref.loginProvider = normalizeString(account.login_provider) ?? undefined;
       break;
     case 'cursor':
-    case 'gemini':
       ref.email = normalizeString(account.email) ?? undefined;
       ref.authId = normalizeString(account.auth_id) ?? undefined;
       break;
@@ -558,7 +559,6 @@ function scoreAccountRef(ref: DataTransferAccountRef, account: TransferAccountRe
       addStringScore(ref.loginProvider, account.login_provider, 4);
       break;
     case 'cursor':
-    case 'gemini':
       addStringScore(ref.authId, account.auth_id, 24);
       addStringScore(ref.email, account.email, 10);
       break;
@@ -685,6 +685,7 @@ function exportUserConfig(config: RawUserConfig, registry: AccountRegistry): Exp
     auto_switch_selected_account_ids,
     codex_auto_switch_selected_account_ids,
     webdav_sync_password: _webdavSyncPassword,
+    backup_directory: _backupDirectory,
     ...rest
   } = config;
 
@@ -763,6 +764,7 @@ function exportCodexAccountGroups(
     name: group.name,
     sortOrder: group.sortOrder,
     createdAt: group.createdAt,
+    quotaAutoRefreshMinutes: group.quotaAutoRefreshMinutes ?? null,
     accountRefs: mapAccountIdsToRefs('codex', group.accountIds, registry),
   }));
 }
@@ -780,6 +782,13 @@ function importCodexAccountGroups(
       name: group.name,
       sortOrder: group.sortOrder,
       createdAt: group.createdAt,
+      // 兼容旧导出里的 boolean；新字段优先
+      quotaAutoRefreshMinutes:
+        (group as { quotaAutoRefreshMinutes?: number | null }).quotaAutoRefreshMinutes !== undefined
+          ? (group as { quotaAutoRefreshMinutes?: number | null }).quotaAutoRefreshMinutes ?? null
+          : (group as { quotaRefreshEnabled?: boolean }).quotaRefreshEnabled === false
+            ? -1
+            : null,
       accountIds: resolved.ids,
     };
   });
@@ -1230,9 +1239,6 @@ function detectLegacyPlatform(value: unknown): PlatformId | null {
   }
   if ('kiro_auth_token_raw' in sample || 'kiro_usage_raw' in sample || 'login_provider' in sample) {
     return 'kiro';
-  }
-  if ('gemini_auth_raw' in sample || 'gemini_usage_raw' in sample || 'selected_auth_type' in sample) {
-    return 'gemini';
   }
   if ('cursor_auth_raw' in sample || 'cursor_usage_raw' in sample || 'membership_type' in sample) {
     return 'cursor';

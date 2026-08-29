@@ -225,6 +225,129 @@
   color: var(--danger);
 }
 
+.accounts-page .card-action-btn.active,
+.accounts-page .action-btn.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.antigravity-account-note-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.antigravity-account-note-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.antigravity-account-note-desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.antigravity-account-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.antigravity-account-note-field textarea {
+  min-height: 104px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.antigravity-account-note-field textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.antigravity-account-note-field textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.antigravity-account-note-count {
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.accounts-page .codex-account-note-chip,
+.add-account-modal .codex-account-note-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: 140px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.accounts-page .codex-account-note-chip:hover,
+.accounts-page .codex-account-note-chip.has-note,
+.add-account-modal .codex-account-note-chip:hover,
+.add-account-modal .codex-account-note-chip.has-note {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 36%, transparent);
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+}
+
+.antigravity-account-meta-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.antigravity-pending-oauth-draft {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+}
+
+.antigravity-pending-oauth-draft .oauth-link {
+  margin: 0;
+}
+
+/* #1287 denser Codex account cards — hit real Codex DOM classes */
+.codex-accounts-page .codex-accounts-grid .codex-account-card {
+  padding: 12px 14px;
+  gap: 12px;
+}
+.codex-accounts-page .codex-accounts-grid .codex-account-card .card-actions {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 /* Tech-Badge - Compact */
 .tier-badge {
   padding: 2px 6px;
@@ -241,6 +364,26 @@
   top: 0; left: 0; right: 0; bottom: 0;
   background: linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0));
   z-index: -1;
+}
+
+/* Style-only plan badge variants (#772); plan text stays raw. */
+.tier-badge.plan-badge-style-outline,
+.instance-plan-badge.plan-badge-style-outline {
+  background: transparent !important;
+  border-width: 1px;
+  border-style: solid;
+}
+.tier-badge.plan-badge-style-soft,
+.instance-plan-badge.plan-badge-style-soft {
+  filter: saturate(0.85);
+  opacity: 0.92;
+  border-radius: 999px;
+}
+.tier-badge.plan-badge-style-mono,
+.instance-plan-badge.plan-badge-style-mono {
+  background: var(--bg-secondary, #2a2a2a) !important;
+  color: var(--text-primary, #e8e8e8) !important;
+  border: 1px solid var(--border-light, #444) !important;
 }
 
 .tier-badge.pro {
@@ -403,6 +546,15 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.folder-inline-quota-meta {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .folder-inline-name-input {

@@ -1,5 +1,5 @@
 use crate::models::grok::{GrokAccountView, GrokOAuthStartResponse};
-use crate::modules::{grok_account, grok_oauth, logger};
+use crate::modules::{config, grok_account, grok_oauth, logger, opencode_auth, process};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -322,8 +322,12 @@ pub fn import_grok_from_json(json_content: String) -> Result<Vec<GrokAccountView
 }
 
 #[tauri::command]
-pub fn add_grok_account_with_api_key(api_key: String) -> Result<GrokAccountView, String> {
-    grok_account::upsert_api_key(&api_key)
+pub fn add_grok_account_with_api_key(
+    api_key: String,
+    api_base_url: Option<String>,
+    api_model: Option<String>,
+) -> Result<GrokAccountView, String> {
+    grok_account::upsert_api_key(&api_key, api_base_url.as_deref(), api_model.as_deref())
 }
 
 #[tauri::command]
@@ -353,27 +357,17 @@ pub async fn grok_oauth_login_complete(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let was_current_account = if let Some(account_id) = reauth_account_id {
-        match grok_account::current_account_id() {
-            Ok(current_account_id) => current_account_id.as_deref() == Some(account_id),
-            Err(error) => {
-                logger::log_warn(&format!(
-                    "[Grok OAuth] 重新授权前对账默认账号失败: {}",
-                    error
-                ));
-                false
-            }
-        }
-    } else {
-        false
-    };
     let account = if let Some(account_id) = reauth_account_id {
         grok_account::upsert_oauth_for_reauth(payload, account_id)?
     } else {
         grok_account::upsert_oauth(payload)?
     };
-    if was_current_account {
-        grok_account::inject_to_default(&account.id)?;
+    // 每账号独立 home：登录/重授权后刷新该账号 profile，不写官方默认 ~/.grok。
+    if let Err(error) = grok_account::prepare_account_home(&account.id) {
+        logger::log_warn(&format!(
+            "[Grok OAuth] 准备独立 GROK_HOME 失败: account_id={}, error={}",
+            account.id, error
+        ));
     }
     let view = match grok_account::refresh_account(&account.id).await {
         Ok(view) => view,
@@ -428,11 +422,65 @@ pub async fn refresh_all_grok_accounts(app: AppHandle) -> Result<i32, String> {
     Ok(success)
 }
 
+fn apply_grok_switch_opencode_projection(account_id: &str, user_config: &config::UserConfig) {
+    let mut opencode_updated = false;
+    if user_config.grok_opencode_auth_overwrite_on_switch {
+        match grok_account::load_account(account_id) {
+            Some(account) => match opencode_auth::replace_xai_entry_from_grok(&account) {
+                Ok(()) => {
+                    opencode_updated = true;
+                }
+                Err(e) => {
+                    logger::log_warn(&format!("OpenCode auth.json 更新跳过: {}", e));
+                }
+            },
+            None => {
+                logger::log_warn(&format!(
+                    "OpenCode auth.json 更新跳过: Grok 账号不存在: {}",
+                    account_id
+                ));
+            }
+        }
+    } else {
+        logger::log_info("已关闭切换 Grok 时覆盖 OpenCode 登录信息");
+    }
+
+    if user_config.grok_opencode_sync_on_switch {
+        if user_config.grok_opencode_auth_overwrite_on_switch && opencode_updated {
+            if process::is_opencode_running() {
+                if let Err(e) = process::close_opencode(20) {
+                    logger::log_warn(&format!("OpenCode 关闭失败: {}", e));
+                }
+            } else {
+                logger::log_info("OpenCode 未在运行，准备启动");
+            }
+            if let Err(e) = process::start_opencode_with_path(Some(&user_config.opencode_app_path))
+            {
+                logger::log_warn(&format!("OpenCode 启动失败: {}", e));
+            }
+        } else if !user_config.grok_opencode_auth_overwrite_on_switch {
+            logger::log_info("OpenCode 登录覆盖已关闭，跳过自动重启");
+        } else {
+            logger::log_info("OpenCode 未更新 auth.json，跳过启动/重启");
+        }
+    } else {
+        logger::log_info("已关闭 OpenCode 自动重启");
+    }
+}
+
 #[tauri::command]
 pub fn switch_grok_account(app: AppHandle, account_id: String) -> Result<String, String> {
-    let email = grok_account::inject_to_default(&account_id)?;
+    let user_config = config::get_user_config();
+    let message = if user_config.grok_sync_official_auth_on_switch {
+        let email = grok_account::inject_to_default(&account_id)?;
+        format!("已同步官方登录: {}", email)
+    } else {
+        let (email, home) = grok_account::prepare_account_home(&account_id)?;
+        format!("已准备独立目录: {} ({})", email, home.display())
+    };
+    apply_grok_switch_opencode_projection(&account_id, &user_config);
     let _ = crate::modules::tray::update_tray_menu(&app);
-    Ok(format!("切换完成: {}", email))
+    Ok(message)
 }
 
 #[tauri::command]

@@ -152,6 +152,18 @@ pub fn rebuild_thread_metadata(codex_home: &Path) -> Result<(), String> {
         finish_started.elapsed().as_millis(),
         flow_started.elapsed().as_millis()
     ));
+    let result = result.and_then(|()| {
+        let normalized_count =
+            crate::modules::codex_session_visibility::normalize_official_thread_cwds(codex_home)?;
+        if normalized_count > 0 {
+            crate::modules::logger::log_info(&format!(
+                "[Codex Official AppServer] normalized {} Desktop thread cwd row(s): codex_home={}",
+                normalized_count,
+                codex_home.display()
+            ));
+        }
+        Ok(())
+    });
     if let Err(error) = &result {
         crate::modules::logger::log_warn(&format!(
             "[Codex Official AppServer] rebuild_thread_metadata failed: codex_home={}, elapsed_ms={}, error={}",
@@ -169,7 +181,7 @@ pub fn rebuild_thread_metadata(codex_home: &Path) -> Result<(), String> {
     result
 }
 
-fn official_app_server_executable() -> Result<PathBuf, String> {
+pub(crate) fn official_app_server_executable() -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
     if let Some(executable) = std::env::var_os(CODEX_APP_SERVER_EXECUTABLE_ENV) {
         if !executable.as_os_str().is_empty() {
@@ -251,6 +263,11 @@ fn app_server_executable_from_codex_launch_path(path: &Path) -> Option<PathBuf> 
         return Some(contents_dir.join("Resources").join("codex"));
     }
 
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if path_file_name_eq(&resolved, "chatgpt") && parent_file_name_eq(&resolved, "chatgpt") {
+        return Some(resolved.parent()?.join("resources").join("codex"));
+    }
+
     if path_file_name_eq(path, "codex.exe") {
         return Some(path.parent()?.join("resources").join("codex.exe"));
     }
@@ -314,6 +331,13 @@ fn send_request(stdin: &mut impl Write, request: JsonValue) -> Result<(), String
 }
 
 fn wait_for_response(receiver: &mpsc::Receiver<String>, request_id: i64) -> Result<(), String> {
+    wait_for_response_value(receiver, request_id).map(|_| ())
+}
+
+fn wait_for_response_value(
+    receiver: &mpsc::Receiver<String>,
+    request_id: i64,
+) -> Result<JsonValue, String> {
     loop {
         let line = receiver
             .recv_timeout(APP_SERVER_RESPONSE_TIMEOUT)
@@ -335,7 +359,7 @@ fn wait_for_response(receiver: &mpsc::Receiver<String>, request_id: i64) -> Resu
             ));
         }
         if value.get("result").is_some() {
-            return Ok(());
+            return Ok(value);
         }
         return Err(format!(
             "官方 app-server 响应缺少 result (id={}): {}",
@@ -443,6 +467,15 @@ mod tests {
         assert_eq!(
             app_server_executable_from_codex_launch_path(&app_server_path),
             Some(app_server_path)
+        );
+    }
+
+    #[test]
+    fn maps_linux_chatgpt_binary_to_resources_app_server() {
+        let launch_path = PathBuf::from("/usr/lib/chatgpt/ChatGPT");
+        assert_eq!(
+            app_server_executable_from_codex_launch_path(&launch_path),
+            Some(PathBuf::from("/usr/lib/chatgpt/resources/codex"))
         );
     }
 }

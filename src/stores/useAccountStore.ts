@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Account, QuotaData, RefreshStats, TokenData } from '../types/account';
+import { Account, AccountNoteUpdate, QuotaData, RefreshStats, TokenData } from '../types/account';
 import * as accountService from '../services/accountService';
 import { emitAccountsChanged, emitCurrentAccountChanged } from '../utils/accountSyncEvents';
 import {
@@ -108,6 +108,10 @@ function toPersistedQuotaSnapshot(quota?: QuotaData): QuotaData | undefined {
 function toPersistedAccountSnapshot(account: Account): Account {
   return {
     ...account,
+    two_factor_secret: undefined,
+    account_password: undefined,
+    phone_number: undefined,
+    mail_url: undefined,
     token: toPersistedTokenSnapshot(account.token),
     quota: toPersistedQuotaSnapshot(account.quota),
   };
@@ -116,6 +120,7 @@ function toPersistedAccountSnapshot(account: Account): Account {
 // 防抖状态（在 store 外部维护，避免触发 re-render）
 let fetchAccountsPromise: Promise<void> | null = null;
 let fetchAccountsLastTime = 0;
+let fetchAccountsSeq = 0;
 const fetchCurrentPromises: Partial<Record<AntigravityRuntimeTarget, Promise<void>>> = {};
 const fetchCurrentLastTimes: Partial<Record<AntigravityRuntimeTarget, number>> = {};
 let allowNextEmptyAccountList = false;
@@ -160,12 +165,13 @@ interface AccountState {
     deleteAccounts: (accountIds: string[]) => Promise<void>;
     setCurrentAccount: (accountId: string, runtimeTarget?: AntigravityRuntimeTarget) => Promise<void>;
     refreshQuota: (accountId: string, runtimeTarget?: AntigravityRuntimeTarget) => Promise<void>;
-    refreshAllQuotas: () => Promise<RefreshStats>;
-    startOAuthLogin: () => Promise<Account>;
+    refreshAllQuotas: (trigger?: 'auto' | 'manual') => Promise<RefreshStats>;
+    startOAuthLogin: (update?: AccountNoteUpdate) => Promise<Account>;
     reorderAccounts: (accountIds: string[]) => Promise<void>;
     switchAccount: (accountId: string, runtimeTarget?: AntigravityRuntimeTarget) => Promise<Account>;
     syncCurrentFromClient: () => Promise<void>;
     updateAccountTags: (accountId: string, tags: string[]) => Promise<Account>;
+    updateAccountNotes: (accountId: string, update: string | AccountNoteUpdate) => Promise<Account>;
 }
 
 export const useAccountStore = create<AccountState>()(
@@ -188,9 +194,13 @@ export const useAccountStore = create<AccountState>()(
           fetchAccountsLastTime = now;
           
           fetchAccountsPromise = (async () => {
+              const requestId = ++fetchAccountsSeq;
               set({ loading: true, error: null });
               try {
                   const accounts = await accountService.listAccounts();
+                  if (requestId !== fetchAccountsSeq) {
+                      return;
+                  }
                   if (accounts.length === 0 && get().accounts.length > 0 && !allowNextEmptyAccountList) {
                       console.warn('[AccountStore] 忽略异常空账号列表，保留本地缓存账号');
                       set({ loading: false });
@@ -199,12 +209,19 @@ export const useAccountStore = create<AccountState>()(
                   allowNextEmptyAccountList = false;
                   set({ accounts, loading: false });
               } catch (e) {
+                  if (requestId !== fetchAccountsSeq) {
+                      return;
+                  }
                   set({ error: String(e), loading: false });
               } finally {
-                  allowNextEmptyAccountList = false;
+                  if (requestId === fetchAccountsSeq) {
+                      allowNextEmptyAccountList = false;
+                  }
                   // 请求完成后延迟清除 Promise，允许短时间内的后续调用也复用结果
                   setTimeout(() => {
-                      fetchAccountsPromise = null;
+                      if (requestId === fetchAccountsSeq) {
+                          fetchAccountsPromise = null;
+                      }
                   }, 100);
               }
           })();
@@ -414,8 +431,8 @@ export const useAccountStore = create<AccountState>()(
         }
     },
 
-    refreshAllQuotas: async () => {
-        const stats = await accountService.refreshAllQuotas();
+    refreshAllQuotas: async (trigger) => {
+        const stats = await accountService.refreshAllQuotas(trigger);
         await get().fetchAccounts();
         await Promise.allSettled([
             get().fetchCurrentAccount('antigravity'),
@@ -424,8 +441,8 @@ export const useAccountStore = create<AccountState>()(
         return stats;
     },
 
-    startOAuthLogin: async () => {
-        const account = await accountService.startOAuthLogin();
+    startOAuthLogin: async (update?: AccountNoteUpdate) => {
+        const account = await accountService.startOAuthLogin(update);
         await get().fetchAccounts();
         await emitAccountsChanged({
             platformId: 'antigravity',
@@ -503,6 +520,28 @@ export const useAccountStore = create<AccountState>()(
     updateAccountTags: async (accountId: string, tags: string[]) => {
         const account = await accountService.updateAccountTags(accountId, tags);
         await get().fetchAccounts();
+        return account;
+    },
+
+    updateAccountNotes: async (accountId: string, update: string | AccountNoteUpdate) => {
+        const account = typeof update === 'string'
+            ? await accountService.updateAccountNotes(accountId, update)
+            : await accountService.updateAccountNote(accountId, update);
+        set((state) => ({
+            accounts: state.accounts.map((item) => item.id === account.id ? account : item),
+            currentAccount: state.currentAccount?.id === account.id ? account : state.currentAccount,
+            currentAccountsByTarget: {
+                antigravity:
+                    state.currentAccountsByTarget.antigravity?.id === account.id
+                        ? account
+                        : state.currentAccountsByTarget.antigravity,
+                antigravity_ide:
+                    state.currentAccountsByTarget.antigravity_ide?.id === account.id
+                        ? account
+                        : state.currentAccountsByTarget.antigravity_ide,
+            },
+        }));
+        await emitAccountsChanged({ platformId: 'antigravity', accountId: account.id, reason: 'note' });
         return account;
     },
   }),

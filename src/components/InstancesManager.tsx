@@ -37,14 +37,20 @@ import {
   InstanceProfile,
 } from "../types/instance";
 import type { PlatformId } from "../types/platform";
-import type { CodexQuickConfig } from "../types/codex";
+import type {
+  CodexExperimentalModelDefinition,
+  CodexQuickConfig,
+} from "../types/codex";
 import {
   FileCorruptedModal,
   parseFileCorruptedError,
   type FileCorruptedError,
 } from "./FileCorruptedModal";
 import { ModalErrorMessage, useModalErrorState } from "./ModalErrorMessage";
+import { scrollElementIntoView } from "../utils/reducedMotion";
 import { useEscClose } from "../hooks/useEscClose";
+import { useEnterConfirm } from "../hooks/useEnterConfirm";
+import { CodexExperimentalModelEditor } from "./codex/CodexExperimentalModelEditor";
 import type { InstanceStoreState } from "../stores/createInstanceStore";
 import { showInstanceFloatingCardWindow } from "../services/floatingCardService";
 import {
@@ -58,7 +64,11 @@ import {
   saveCodexInstanceQuickConfig,
 } from "../services/codexInstanceService";
 import { CodexSpeedSelect } from "./codex/CodexSpeedSelect";
+import { SingleSelectDropdown } from "./SingleSelectDropdown";
 import type { CodexAppSpeed } from "../types/codex";
+import { getCodexExperimentalModelErrorMessage } from "../utils/codexExperimentalModel";
+import { isCodexInstanceAccountConflict } from "../utils/codexInstanceLaunchConflict";
+import { presentWindowsOperationError } from "../utils/windowsOperationDialog";
 
 type MessageState = { text: string; tone?: "error" };
 type AccountLike = {
@@ -72,7 +82,7 @@ type AccountLike = {
 type InstanceSortField = "createdAt" | "lastLaunchedAt";
 type SortDirection = "asc" | "desc";
 type StartInstanceOutcome =
-  "started" | "already-running" | "missing-path" | "failed";
+  "started" | "already-running" | "missing-path" | "failed" | "cancelled";
 type AccountSelectPortalPosition = {
   top: number;
   left: number;
@@ -158,7 +168,6 @@ interface InstancesManagerProps<TAccount extends AccountLike> {
     | "windsurf"
     | "kiro"
     | "cursor"
-    | "gemini"
     | "grok"
     | "codebuddy"
     | "codebuddy_cn"
@@ -170,6 +179,7 @@ interface InstancesManagerProps<TAccount extends AccountLike> {
     | "workbuddy"
     | "zcode";
   onInstanceStarted?: (instance: InstanceProfile) => void | Promise<void>;
+  onBeforeStart?: (instance: InstanceProfile) => boolean | Promise<boolean>;
   onInstanceStartError?: (
     error: unknown,
     instance: InstanceProfile,
@@ -188,70 +198,6 @@ const ACCOUNT_SELECT_PORTAL_SAFE_MARGIN = 12;
 const ACCOUNT_SELECT_PORTAL_MAX_HEIGHT = 320;
 const ACCOUNT_SELECT_PORTAL_MIN_HEIGHT = 140;
 const ACCOUNT_SELECT_PORTAL_Z_INDEX = 10020;
-const DEFAULT_AUTO_COMPACT_TOKEN_LIMIT = 900000;
-const CONTEXT_WINDOW_516K = 516000;
-const AUTO_COMPACT_TOKEN_LIMIT_516K = 460000;
-const CONTEXT_WINDOW_1M = 1000000;
-const AUTO_COMPACT_TOKEN_LIMIT_1M = 900000;
-
-type CodexQuickConfigBuiltInPresetId = "default" | "preset_516k" | "preset_1m";
-type CodexQuickConfigPresetId = CodexQuickConfigBuiltInPresetId | "custom";
-
-interface CodexQuickConfigTarget {
-  modelContextWindow: number | null;
-  autoCompactTokenLimit: number | null;
-}
-
-const CODEX_QUICK_CONFIG_PRESETS: Record<
-  CodexQuickConfigBuiltInPresetId,
-  CodexQuickConfigTarget
-> = {
-  default: {
-    modelContextWindow: null,
-    autoCompactTokenLimit: null,
-  },
-  preset_516k: {
-    modelContextWindow: CONTEXT_WINDOW_516K,
-    autoCompactTokenLimit: AUTO_COMPACT_TOKEN_LIMIT_516K,
-  },
-  preset_1m: {
-    modelContextWindow: CONTEXT_WINDOW_1M,
-    autoCompactTokenLimit: AUTO_COMPACT_TOKEN_LIMIT_1M,
-  },
-};
-
-const parsePositiveInteger = (value: string): number | null => {
-  const parsed = Number.parseInt(value.trim(), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-};
-
-const resolveCodexQuickConfigPresetId = (
-  modelContextWindow: number | null,
-  autoCompactTokenLimit: number | null,
-): CodexQuickConfigPresetId => {
-  if (modelContextWindow === null && autoCompactTokenLimit === null) {
-    return "default";
-  }
-  if (
-    modelContextWindow ===
-      CODEX_QUICK_CONFIG_PRESETS.preset_516k.modelContextWindow &&
-    autoCompactTokenLimit ===
-      CODEX_QUICK_CONFIG_PRESETS.preset_516k.autoCompactTokenLimit
-  ) {
-    return "preset_516k";
-  }
-  if (
-    modelContextWindow ===
-      CODEX_QUICK_CONFIG_PRESETS.preset_1m.modelContextWindow &&
-    autoCompactTokenLimit ===
-      CODEX_QUICK_CONFIG_PRESETS.preset_1m.autoCompactTokenLimit
-  ) {
-    return "preset_1m";
-  }
-  return "custom";
-};
-
 const normalizeInstanceAccountTag = (tag: string) => tag.trim().toLowerCase();
 
 const collectInstanceAccountTags = <TAccount extends AccountLike>(
@@ -644,6 +590,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   getAccountSearchText,
   appType = "antigravity",
   onInstanceStarted,
+  onBeforeStart,
   onInstanceStartError,
   resolveStartSuccessMessage,
   isAccountAllowedForLaunchMode,
@@ -700,14 +647,17 @@ export function InstancesManager<TAccount extends AccountLike>({
   const [formBindAccountId, setFormBindAccountId] = useState<string>("");
   const [formCodexQuickConfig, setFormCodexQuickConfig] =
     useState<CodexQuickConfig | null>(null);
-  const [formCodexQuickConfigPresetId, setFormCodexQuickConfigPresetId] =
-    useState<CodexQuickConfigPresetId>("default");
   const [
-    formCodexQuickContextWindowInput,
-    setFormCodexQuickContextWindowInput,
-  ] = useState(String(CONTEXT_WINDOW_1M));
-  const [formCodexQuickCompactLimitInput, setFormCodexQuickCompactLimitInput] =
-    useState(String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT));
+    formExperimentalModelCatalogEnabled,
+    setFormExperimentalModelCatalogEnabled,
+  ] = useState(false);
+  const [formExperimentalModels, setFormExperimentalModels] = useState<
+    CodexExperimentalModelDefinition[]
+  >([]);
+  const [formExperimentalDefaultModelId, setFormExperimentalDefaultModelId] =
+    useState<string | null>(null);
+  const [formExperimentalModelsError, setFormExperimentalModelsError] =
+    useState<string | null>(null);
   const [formCodexQuickConfigLoading, setFormCodexQuickConfigLoading] =
     useState(false);
   const [formCodexQuickConfigError, setFormCodexQuickConfigError] = useState<
@@ -747,12 +697,11 @@ export function InstancesManager<TAccount extends AccountLike>({
     () => new Set(stoppingInstanceIds),
     [stoppingInstanceIds],
   );
-  const isGeminiApp = appType === "gemini";
   const isGrokApp = appType === "grok";
   const supportsInstanceInitialization = !isGrokApp;
-  const isCliOnlyApp = isGeminiApp || isGrokApp;
   const isCodexApp = appType === "codex";
   const isClaudeApp = appType === "claude";
+  const isCliOnlyApp = isGrokApp;
   const supportsLaunchModeSelect = isCodexApp || isClaudeApp;
   const resolveInstanceLaunchMode = (
     instance?: InstanceProfile | null,
@@ -962,7 +911,7 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   useEffect(() => {
     if (!formError || !showModal) return;
-    formErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    scrollElementIntoView(formErrorRef.current, { block: "end" });
   }, [formError, formErrorTick, showModal]);
 
   useEffect(() => {
@@ -1054,11 +1003,9 @@ export function InstancesManager<TAccount extends AccountLike>({
     setFormAppSpeed("standard");
     setFormBindAccountId("");
     setFormCodexQuickConfig(null);
-    setFormCodexQuickConfigPresetId("default");
-    setFormCodexQuickContextWindowInput(String(CONTEXT_WINDOW_1M));
-    setFormCodexQuickCompactLimitInput(
-      String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT),
-    );
+    setFormExperimentalModelCatalogEnabled(false);
+    setFormExperimentalModels([]);
+    setFormExperimentalModelsError(null);
     setFormCodexQuickConfigLoading(false);
     setFormCodexQuickConfigError(null);
     setFormCodexOpenConfigLoading(false);
@@ -1121,11 +1068,9 @@ export function InstancesManager<TAccount extends AccountLike>({
     setFormAppSpeed(instance.appSpeed ?? "standard");
     setFormBindAccountId(instance.bindAccountId || "");
     setFormCodexQuickConfig(null);
-    setFormCodexQuickConfigPresetId("default");
-    setFormCodexQuickContextWindowInput(String(CONTEXT_WINDOW_1M));
-    setFormCodexQuickCompactLimitInput(
-      String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT),
-    );
+    setFormExperimentalModelCatalogEnabled(false);
+    setFormExperimentalModels([]);
+    setFormExperimentalModelsError(null);
     setFormCodexQuickConfigLoading(isCodexApp);
     setFormCodexQuickConfigError(null);
     setFormCodexOpenConfigLoading(false);
@@ -1133,6 +1078,49 @@ export function InstancesManager<TAccount extends AccountLike>({
     setPathAuto(false);
     setShowModal(true);
   };
+
+  useEffect(() => {
+    if (!isCodexApp) return;
+    const handleEditBoundAccount = (event: Event) => {
+      const instanceId = (event as CustomEvent<{ instanceId?: string }>).detail
+        ?.instanceId;
+      if (!instanceId) return;
+      const target = instances.find((instance) => instance.id === instanceId);
+      if (target) openEditModal(target);
+    };
+    window.addEventListener(
+      "codex:edit-instance-account",
+      handleEditBoundAccount as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        "codex:edit-instance-account",
+        handleEditBoundAccount as EventListener,
+      );
+    };
+  }, [instances, isCodexApp]);
+
+  useEffect(() => {
+    if (!isCodexApp || !onInstanceStarted) return;
+    const handleTransferredLaunch = (event: Event) => {
+      const instance = (event as CustomEvent<{ instance?: InstanceProfile }>)
+        .detail?.instance;
+      if (!instance) return;
+      void Promise.resolve(onInstanceStarted(instance)).catch((error) => {
+        setMessage({ text: String(error), tone: "error" });
+      });
+    };
+    window.addEventListener(
+      "codex:instance-launch-transferred",
+      handleTransferredLaunch as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        "codex:instance-launch-transferred",
+        handleTransferredLaunch as EventListener,
+      );
+    };
+  }, [isCodexApp, onInstanceStarted]);
 
   const closeModal = () => {
     setOpenInlineMenuId(null);
@@ -1253,10 +1241,10 @@ export function InstancesManager<TAccount extends AccountLike>({
     if (
       editing &&
       isCodexApp &&
-      formCodexQuickConfigDirty &&
-      formCodexQuickValidationError
+      formExperimentalModelCatalogEnabled &&
+      formExperimentalModelsError
     ) {
-      setFormError(formCodexQuickValidationError);
+      setFormError(formExperimentalModelsError);
       setFormErrorTick((prev) => prev + 1);
       return;
     }
@@ -1301,8 +1289,11 @@ export function InstancesManager<TAccount extends AccountLike>({
         if (isCodexApp && formCodexQuickConfigDirty) {
           await saveCodexInstanceQuickConfig(
             editing.id,
-            formCodexQuickTargetConfig.modelContextWindow ?? undefined,
-            formCodexQuickTargetConfig.autoCompactTokenLimit ?? undefined,
+            undefined,
+            undefined,
+            formExperimentalModelCatalogEnabled,
+            formExperimentalModels,
+            formExperimentalDefaultModelId,
           );
         }
         setMessage({ text: t("instances.messages.updated", "实例已更新") });
@@ -1332,7 +1323,8 @@ export function InstancesManager<TAccount extends AccountLike>({
       }
       closeModal();
     } catch (e) {
-      setFormError(String(e));
+      setFormError(getCodexExperimentalModelErrorMessage(t, e) ?? String(e));
+      setFormErrorTick((prev) => prev + 1);
     } finally {
       setActionLoading(null);
     }
@@ -1362,6 +1354,13 @@ export function InstancesManager<TAccount extends AccountLike>({
     }
   };
 
+  useEnterConfirm(
+    !!deleteConfirmInstance && actionLoading !== deleteConfirmInstance?.id,
+    () => {
+      void handleConfirmDelete();
+    },
+  );
+
   const handleMissingPathError = (error: unknown, instanceId?: string) => {
     const message = String(error ?? "");
     const missingPathPrefix = "APP_PATH_NOT_FOUND:";
@@ -1384,7 +1383,6 @@ export function InstancesManager<TAccount extends AccountLike>({
       rawApp === "windsurf" ||
       rawApp === "kiro" ||
       rawApp === "cursor" ||
-      rawApp === "gemini" ||
       rawApp === "grok" ||
       rawApp === "codebuddy" ||
       rawApp === "codebuddy_cn" ||
@@ -1402,6 +1400,25 @@ export function InstancesManager<TAccount extends AccountLike>({
     window.dispatchEvent(
       new CustomEvent("app-path-missing", { detail: { app, retry } }),
     );
+    return true;
+  };
+
+  const handleCodexManagedStoreLaunchError = (error: unknown) => {
+    const message = String(error ?? "").replace(/^Error:\s*/, "");
+    const prefix = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
+    if (appType !== "codex" || !message.startsWith(prefix)) {
+      return false;
+    }
+
+    const detail = message.slice(prefix.length).trim();
+    setMessage({
+      text: t(
+        "instances.messages.codexManagedStoreLaunchUnsafe",
+        "Windows Store 无法可靠传递实例目录，已阻止打开默认账号。请将该实例的启动方式切换为 CLI 后重试。详情：{{detail}}",
+        { detail },
+      ),
+      tone: "error",
+    });
     return true;
   };
 
@@ -1433,6 +1450,18 @@ export function InstancesManager<TAccount extends AccountLike>({
         return "already-running";
       }
 
+      if (onBeforeStart) {
+        try {
+          const allowed = await onBeforeStart(instance);
+          if (!allowed) {
+            return "cancelled";
+          }
+        } catch (error) {
+          setMessage({ text: String(error), tone: "error" });
+          return "failed";
+        }
+      }
+
       if (!preMarkedStarting) {
         markInstanceStarting(instance.id);
       }
@@ -1462,6 +1491,9 @@ export function InstancesManager<TAccount extends AccountLike>({
         }
         return "started";
       } catch (e) {
+        if (isCodexApp && isCodexInstanceAccountConflict(e)) {
+          return "failed";
+        }
         if (onInstanceStartError) {
           try {
             if (await onInstanceStartError(e, instance)) {
@@ -1474,6 +1506,27 @@ export function InstancesManager<TAccount extends AccountLike>({
         }
         if (handleMissingPathError(e, instance.id)) {
           return "missing-path";
+        }
+        if (handleCodexManagedStoreLaunchError(e)) {
+          return "failed";
+        }
+        const retryStart = async () => {
+          const startedInstance = await startInstance(instance.id);
+          await Promise.resolve(onInstanceStarted?.(startedInstance));
+          triggerDelayedRefreshAfterStart();
+        };
+        if (
+          presentWindowsOperationError({
+            error: e,
+            operation: "launch_app",
+            retry: retryStart,
+            manualContinue: retryStart,
+          })
+        ) {
+          return "failed";
+        }
+        if (isCodexApp) {
+          return "failed";
         }
         setMessage({ text: String(e), tone: "error" });
         return "failed";
@@ -1490,7 +1543,10 @@ export function InstancesManager<TAccount extends AccountLike>({
     },
     [
       handleMissingPathError,
+      handleCodexManagedStoreLaunchError,
+      isCodexApp,
       markInstanceStarting,
+      onBeforeStart,
       onInstanceStartError,
       onInstanceStarted,
       resolveStartSuccessMessage,
@@ -1503,8 +1559,7 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   const handleStart = async (instance: InstanceProfile) => {
     await startStoppedInstance(instance, {
-      showRunningNotice:
-        supportsStopControl && !usesTerminalLaunch(instance),
+      showRunningNotice: supportsStopControl && !usesTerminalLaunch(instance),
       showSuccessMessage: true,
     });
   };
@@ -1531,6 +1586,20 @@ export function InstancesManager<TAccount extends AccountLike>({
       await stopInstance(instance.id);
       setMessage({ text: t("instances.messages.stopped", "实例已关闭") });
     } catch (e) {
+      const retryStop = async () => {
+        await stopInstance(instance.id);
+        await refreshInstances();
+      };
+      if (
+        presentWindowsOperationError({
+          error: e,
+          operation: "stop_process",
+          retry: retryStop,
+          manualContinue: retryStop,
+        })
+      ) {
+        return;
+      }
       setMessage({ text: String(e), tone: "error" });
     } finally {
       unmarkInstanceStopping(instance.id);
@@ -1543,6 +1612,18 @@ export function InstancesManager<TAccount extends AccountLike>({
       await openInstanceWindow(runningNoticeInstance.id);
       setRunningNoticeInstance(null);
     } catch (e) {
+      if (
+        presentWindowsOperationError({
+          error: e,
+          operation: "open_path",
+          retry: async () => {
+            await openInstanceWindow(runningNoticeInstance.id);
+            setRunningNoticeInstance(null);
+          },
+        })
+      ) {
+        return;
+      }
       setMessage({ text: String(e), tone: "error" });
     }
   };
@@ -1554,6 +1635,17 @@ export function InstancesManager<TAccount extends AccountLike>({
       await openInstanceWindow(instance.id);
     } catch (e) {
       if (handleMissingPathError(e, instance.id)) {
+        return;
+      }
+      if (
+        presentWindowsOperationError({
+          error: e,
+          operation: "open_path",
+          retry: async () => {
+            await openInstanceWindow(instance.id);
+          },
+        })
+      ) {
         return;
       }
       setMessage({ text: String(e), tone: "error" });
@@ -1658,7 +1750,7 @@ export function InstancesManager<TAccount extends AccountLike>({
           startedCount += 1;
           continue;
         }
-        if (outcome === "already-running") {
+        if (outcome === "already-running" || outcome === "cancelled") {
           continue;
         }
         return;
@@ -1745,200 +1837,49 @@ export function InstancesManager<TAccount extends AccountLike>({
     formInitMode,
   ]);
 
-  const formCodexQuickPresetOptions = useMemo(
-    () => [
-      {
-        id: "default" as CodexQuickConfigPresetId,
-        label: t("instances.form.codexQuickConfig.presetDefaultShort", "默认"),
-        desc: t(
-          "instances.form.codexQuickConfig.presetDefaultDesc",
-          "移除两个字段，回到官方默认",
-        ),
-      },
-      {
-        id: "preset_516k" as CodexQuickConfigPresetId,
-        label: t("instances.form.codexQuickConfig.preset516kShort", "516K"),
-        desc: t(
-          "instances.form.codexQuickConfig.preset516kDesc",
-          "context=516000 / compact=460000",
-        ),
-      },
-      {
-        id: "preset_1m" as CodexQuickConfigPresetId,
-        label: t("instances.form.codexQuickConfig.preset1mShort", "1M"),
-        desc: t(
-          "instances.form.codexQuickConfig.preset1mDesc",
-          "context=1000000 / compact=900000",
-        ),
-      },
-      {
-        id: "custom" as CodexQuickConfigPresetId,
-        label: t("instances.form.codexQuickConfig.presetCustomShort", "自定义"),
-        desc: t(
-          "instances.form.codexQuickConfig.presetCustomDesc",
-          "手动填写上下文与压缩阈值",
-        ),
-      },
-    ],
-    [t],
-  );
-
   const applyFormCodexQuickConfig = useCallback(
     (nextConfig: CodexQuickConfig) => {
-      const detectedModelContextWindow =
-        nextConfig.detected_model_context_window ?? null;
-      const detectedAutoCompactTokenLimit =
-        nextConfig.detected_auto_compact_token_limit ?? null;
-      const presetId = resolveCodexQuickConfigPresetId(
-        detectedModelContextWindow,
-        detectedAutoCompactTokenLimit,
-      );
       setFormCodexQuickConfig(nextConfig);
-      setFormCodexQuickConfigPresetId(presetId);
-      setFormCodexQuickContextWindowInput(
-        String(detectedModelContextWindow ?? CONTEXT_WINDOW_1M),
+      setFormExperimentalModelCatalogEnabled(
+        nextConfig.experimental_model_catalog_enabled,
       );
-      setFormCodexQuickCompactLimitInput(
-        String(
-          detectedAutoCompactTokenLimit ?? DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
-        ),
+      setFormExperimentalModels(nextConfig.experimental_model_catalog_models);
+      setFormExperimentalDefaultModelId(
+        nextConfig.experimental_model_catalog_default_model_id ?? null,
       );
+      setFormExperimentalModelsError(null);
     },
     [],
   );
 
-  const formCodexQuickIsCustomPreset =
-    formCodexQuickConfigPresetId === "custom";
-  const formCodexQuickDetectedModelContextWindow =
-    formCodexQuickConfig?.detected_model_context_window ?? null;
-  const formCodexQuickDetectedAutoCompactTokenLimit =
-    formCodexQuickConfig?.detected_auto_compact_token_limit ?? null;
-  const formCodexQuickParsedContextWindow = useMemo(
-    () => parsePositiveInteger(formCodexQuickContextWindowInput),
-    [formCodexQuickContextWindowInput],
-  );
-  const formCodexQuickParsedCompactLimit = useMemo(
-    () => parsePositiveInteger(formCodexQuickCompactLimitInput),
-    [formCodexQuickCompactLimitInput],
-  );
-  const formCodexQuickContextWindowError = useMemo(() => {
-    if (!formCodexQuickIsCustomPreset) return null;
-    if (formCodexQuickParsedContextWindow !== null) return null;
-    return t(
-      "instances.form.codexQuickConfig.validation.contextWindowInvalid",
-      "上下文窗口必须是大于 0 的整数",
-    );
-  }, [formCodexQuickIsCustomPreset, formCodexQuickParsedContextWindow, t]);
-  const formCodexQuickCompactLimitError = useMemo(() => {
-    if (!formCodexQuickIsCustomPreset) return null;
-    if (formCodexQuickParsedCompactLimit !== null) return null;
-    return t(
-      "instances.form.codexQuickConfig.validation.autoCompactInvalid",
-      "自动压缩阈值必须是大于 0 的整数",
-    );
-  }, [formCodexQuickIsCustomPreset, formCodexQuickParsedCompactLimit, t]);
-  const formCodexQuickValidationError =
-    formCodexQuickContextWindowError ?? formCodexQuickCompactLimitError;
-  const formCodexQuickTargetConfig = useMemo<CodexQuickConfigTarget>(() => {
-    if (formCodexQuickConfigPresetId === "custom") {
-      return {
-        modelContextWindow: formCodexQuickParsedContextWindow,
-        autoCompactTokenLimit: formCodexQuickParsedCompactLimit,
-      };
-    }
-    return CODEX_QUICK_CONFIG_PRESETS[formCodexQuickConfigPresetId];
-  }, [
-    formCodexQuickConfigPresetId,
-    formCodexQuickParsedCompactLimit,
-    formCodexQuickParsedContextWindow,
-  ]);
-  const formCodexQuickDetectedPresetId = useMemo(
-    () =>
-      resolveCodexQuickConfigPresetId(
-        formCodexQuickDetectedModelContextWindow,
-        formCodexQuickDetectedAutoCompactTokenLimit,
-      ),
-    [
-      formCodexQuickDetectedAutoCompactTokenLimit,
-      formCodexQuickDetectedModelContextWindow,
-    ],
-  );
   const formCodexQuickConfigDirty = useMemo(() => {
     if (!formCodexQuickConfig) return false;
     return (
-      formCodexQuickDetectedModelContextWindow !==
-        formCodexQuickTargetConfig.modelContextWindow ||
-      formCodexQuickDetectedAutoCompactTokenLimit !==
-        formCodexQuickTargetConfig.autoCompactTokenLimit
+      formCodexQuickConfig.experimental_model_catalog_enabled !==
+        formExperimentalModelCatalogEnabled ||
+      JSON.stringify(formCodexQuickConfig.experimental_model_catalog_models) !==
+        JSON.stringify(formExperimentalModels) ||
+      (formCodexQuickConfig.experimental_model_catalog_default_model_id ??
+        null) !== formExperimentalDefaultModelId
     );
   }, [
     formCodexQuickConfig,
-    formCodexQuickDetectedAutoCompactTokenLimit,
-    formCodexQuickDetectedModelContextWindow,
-    formCodexQuickTargetConfig.autoCompactTokenLimit,
-    formCodexQuickTargetConfig.modelContextWindow,
+    formExperimentalModelCatalogEnabled,
+    formExperimentalDefaultModelId,
+    formExperimentalModels,
   ]);
-  const formCodexQuickConfigWarning = useMemo(() => {
-    if (!formCodexQuickConfig) return null;
-    if (
-      (formCodexQuickDetectedModelContextWindow == null) !==
-      (formCodexQuickDetectedAutoCompactTokenLimit == null)
-    ) {
-      return t("instances.form.codexQuickConfig.partialDetected", {
-        defaultValue:
-          "检测到当前两个字段并不完整：model_context_window={{context}}，model_auto_compact_token_limit={{compact}}。保存后会按当前方案改写。",
-        context:
-          formCodexQuickDetectedModelContextWindow ??
-          t("instances.form.codexQuickConfig.notSet", "未设置"),
-        compact:
-          formCodexQuickDetectedAutoCompactTokenLimit ??
-          t("instances.form.codexQuickConfig.notSet", "未设置"),
-      });
-    }
-    if (
-      formCodexQuickDetectedPresetId === "custom" &&
-      formCodexQuickConfigPresetId !== "custom"
-    ) {
-      return t("instances.form.codexQuickConfig.customDetected", {
-        defaultValue:
-          "检测到当前 config.toml 为自定义值：model_context_window={{context}}，model_auto_compact_token_limit={{compact}}。保存后会按你选择的预设改写。",
-        context:
-          formCodexQuickDetectedModelContextWindow ??
-          t("instances.form.codexQuickConfig.notSet", "未设置"),
-        compact:
-          formCodexQuickDetectedAutoCompactTokenLimit ??
-          t("instances.form.codexQuickConfig.notSet", "未设置"),
-      });
+  const formExperimentalModelUnavailableMessage = useMemo(() => {
+    const reason =
+      formCodexQuickConfig?.experimental_model_catalog_unavailable_reason;
+    if (!reason) return null;
+    if (reason === "catalog_conflict") {
+      return t(
+        "codex.experimentalModelCatalog.unavailable.catalogConflict",
+        "已有其他 model_catalog_json，禁止覆盖。",
+      );
     }
     return null;
-  }, [
-    formCodexQuickConfig,
-    formCodexQuickConfigPresetId,
-    formCodexQuickDetectedAutoCompactTokenLimit,
-    formCodexQuickDetectedModelContextWindow,
-    formCodexQuickDetectedPresetId,
-    t,
-  ]);
-
-  const handleFormCodexQuickPresetChange = useCallback(
-    (nextPreset: CodexQuickConfigPresetId) => {
-      setFormCodexQuickConfigError(null);
-      setFormCodexQuickConfigPresetId(nextPreset);
-      if (nextPreset !== "custom") {
-        const preset = CODEX_QUICK_CONFIG_PRESETS[nextPreset];
-        setFormCodexQuickContextWindowInput(
-          String(preset.modelContextWindow ?? CONTEXT_WINDOW_1M),
-        );
-        setFormCodexQuickCompactLimitInput(
-          String(
-            preset.autoCompactTokenLimit ?? DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
-          ),
-        );
-      }
-    },
-    [],
-  );
-
+  }, [formCodexQuickConfig, t]);
   const handleOpenFormCodexConfigToml = useCallback(async () => {
     if (!editing) return;
     setFormCodexQuickConfigError(null);
@@ -2164,109 +2105,18 @@ export function InstancesManager<TAccount extends AccountLike>({
     />
   );
 
-  type InstanceSelectProps = {
-    value: string;
-    onChange: (nextId: string) => void;
-    disabled?: boolean;
-  };
-
-  const InstanceSelect = ({
-    value,
-    onChange,
-    disabled = false,
-  }: InstanceSelectProps) => {
-    const [open, setOpen] = useState(false);
-    const menuRef = useRef<HTMLDivElement | null>(null);
-
-    useEffect(() => {
-      if (!open) return;
-      const handleClick = (event: MouseEvent) => {
-        if (
-          menuRef.current &&
-          !menuRef.current.contains(event.target as Node)
-        ) {
-          setOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", handleClick);
-      return () => {
-        document.removeEventListener("mousedown", handleClick);
-      };
-    }, [open]);
-
-    useEffect(() => {
-      if (disabled && open) {
-        setOpen(false);
-      }
-    }, [disabled, open]);
-
-    const selected =
-      availableCopySourceInstances.find((item) => item.id === value) ||
-      availableCopySourceInstances.find((item) => item.isDefault) ||
-      null;
-    const selectedLabel = selected
-      ? selected.isDefault
-        ? t("instances.defaultName", "默认实例")
-        : selected.name || ""
-      : value === "__default__"
-        ? t("instances.defaultName", "默认实例")
-        : t("instances.form.copySourcePlaceholder", "选择来源实例");
-
-    return (
-      <div
-        className={`account-select ${disabled ? "disabled" : ""}`}
-        ref={menuRef}
-      >
-        <button
-          type="button"
-          className={`account-select-trigger ${open ? "open" : ""}`}
-          onClick={() => {
-            if (disabled) return;
-            setOpen((prev) => !prev);
-          }}
-          disabled={disabled}
-        >
-          <span className="account-select-label" title={selectedLabel}>
-            {selectedLabel}
-          </span>
-          <span className="account-select-meta">
-            <ChevronDown size={14} />
-          </span>
-        </button>
-        {open && !disabled && (
-          <div className="account-select-menu">
-            {availableCopySourceInstances.length === 0 ? (
-              <div className="account-select-item active">
-                <span className="account-select-email muted">
-                  {t("instances.defaultName", "默认实例")}
-                </span>
-              </div>
-            ) : (
-              availableCopySourceInstances.map((instance) => {
-                const label = instance.isDefault
-                  ? t("instances.defaultName", "默认实例")
-                  : instance.name || "";
-                return (
-                  <button
-                    type="button"
-                    key={instance.id}
-                    className={`account-select-item ${value === instance.id ? "active" : ""}`}
-                    onClick={() => {
-                      onChange(instance.id);
-                      setOpen(false);
-                    }}
-                    title={instance.userDataDir}
-                  >
-                    <span className="account-select-email">{label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // 注意：不要把带 useState 的下拉组件定义在 render 内部（否则父级重渲染会重置 open）。
+  // 复制来源实例使用模块级 SingleSelectDropdown（portal + 稳定类型）。
+  const copySourceOptions = useMemo(
+    () =>
+      availableCopySourceInstances.map((instance) => ({
+        value: instance.id,
+        label: instance.isDefault
+          ? t("instances.defaultName", "默认实例")
+          : instance.name || instance.id,
+      })),
+    [availableCopySourceInstances, t],
+  );
 
   const handleFormAccountChange = (nextId: string | null) => {
     setFormBindAccountId(resolveBindAccountValue(nextId) ?? "");
@@ -2308,6 +2158,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         instanceId: instance.id,
         bindAccountId: normalizedNextId,
         followLocalAccount: instance.isDefault ? false : undefined,
+        deferBindAccountApplication: isCodexApp,
       });
     } catch (e) {
       setMessage({ text: String(e), tone: "error" });
@@ -2462,7 +2313,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         </div>
       )}
 
-      {loading ? (
+      {loading && instances.length === 0 ? (
         <div className="loading-state">{t("common.loading", "加载中...")}</div>
       ) : sortedInstances.length === 0 ? (
         <div className="empty-state">
@@ -2480,7 +2331,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         </div>
       ) : (
         <div
-          className={`instances-list${isGeminiApp ? " instances-list-no-pid" : ""}${
+          className={`instances-list${
             isCodexApp ? " instances-list-codex" : ""
           }`}
         >
@@ -2719,9 +2570,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                     title={t("instances.actions.edit", "编辑")}
                     onClick={() => openEditModal(instance)}
                     disabled={
-                      isInstanceBusy ||
-                      restartingAll ||
-                      bulkActionLoading
+                      isInstanceBusy || restartingAll || bulkActionLoading
                     }
                   >
                     <Pencil size={16} />
@@ -3146,9 +2995,25 @@ export function InstancesManager<TAccount extends AccountLike>({
                     <label>
                       {t("instances.form.copySource", "复制来源实例")}
                     </label>
-                    <InstanceSelect
+                    <SingleSelectDropdown
                       value={formCopySourceInstanceId}
                       onChange={setFormCopySourceInstanceId}
+                      options={
+                        copySourceOptions.length > 0
+                          ? copySourceOptions
+                          : [
+                              {
+                                value: "__default__",
+                                label: t("instances.defaultName", "默认实例"),
+                              },
+                            ]
+                      }
+                      placeholder={t(
+                        "instances.form.copySourcePlaceholder",
+                        "选择来源实例",
+                      )}
+                      ariaLabel={t("instances.form.copySource", "复制来源实例")}
+                      className="instance-copy-source-select"
                     />
                     <p className="form-hint">
                       {t(
@@ -3261,10 +3126,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                 <div className="form-group instance-codex-quick-config">
                   <div className="instance-codex-quick-header">
                     <label>
-                      {t(
-                        "instances.form.codexQuickConfig.title",
-                        "上下文与压缩阈值",
-                      )}
+                      {t("codex.experimentalModelCatalog.title", "可见模型")}
                     </label>
                     <button
                       type="button"
@@ -3290,120 +3152,70 @@ export function InstancesManager<TAccount extends AccountLike>({
                     </p>
                   ) : (
                     <>
-                      <div
-                        className="instance-codex-quick-presets"
-                        role="radiogroup"
-                        aria-label={t(
-                          "instances.form.codexQuickConfig.presetLabel",
-                          "配置预设",
-                        )}
-                      >
-                        {formCodexQuickPresetOptions.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={
-                              formCodexQuickConfigPresetId === option.id
-                            }
-                            className={`instance-codex-quick-preset-btn ${
-                              formCodexQuickConfigPresetId === option.id
-                                ? "active"
-                                : ""
-                            }`}
-                            onClick={() =>
-                              handleFormCodexQuickPresetChange(option.id)
-                            }
-                          >
-                            <span className="instance-codex-quick-preset-btn__label">
-                              {option.label}
-                            </span>
-                            <span className="instance-codex-quick-preset-btn__desc">
-                              {option.desc}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                      <p className="form-hint">
-                        {t(
-                          "instances.form.codexQuickConfig.presetHint",
-                          "可直接选择预设（默认 / 516K / 1M），或切到自定义手动填写两个字段。",
-                        )}
-                      </p>
-                      <div className="instance-codex-quick-fields">
-                        <div className="instance-codex-quick-field">
-                          <label>
+                      <div className="instance-codex-experimental-model">
+                        <div className="instance-codex-experimental-model__copy">
+                          <label htmlFor="instance-codex-experimental-model-catalog">
                             {t(
-                              "instances.form.codexQuickConfig.contextWindow",
-                              "上下文窗口",
+                              "codex.experimentalModelCatalog.title",
+                              "可见模型",
                             )}
                           </label>
-                          <input
-                            className="form-input"
-                            type="text"
-                            inputMode="numeric"
-                            value={formCodexQuickContextWindowInput}
-                            onChange={(event) => {
-                              setFormCodexQuickConfigError(null);
-                              setFormCodexQuickContextWindowInput(
-                                event.target.value,
-                              );
-                            }}
-                            disabled={!formCodexQuickIsCustomPreset}
-                            placeholder={String(CONTEXT_WINDOW_1M)}
-                          />
                           <p className="form-hint">
                             {t(
-                              "instances.form.codexQuickConfig.contextWindowHint",
-                              "写入 model_context_window。仅在“自定义”模式可编辑。",
+                              "codex.experimentalModelCatalog.description",
+                              "统一管理可见模型、推理强度、上下文窗口和压缩阈值。",
                             )}
                           </p>
-                          {formCodexQuickContextWindowError && (
-                            <div className="form-error instance-codex-quick-field-error">
-                              {formCodexQuickContextWindowError}
+                          {formExperimentalModelCatalogEnabled && (
+                            <p className="form-hint">
+                              {t(
+                                "codex.experimentalModelCatalog.enabledHint",
+                                "启用后使用当前可见模型列表，重启 Codex 生效。",
+                              )}
+                            </p>
+                          )}
+                          {formExperimentalModelUnavailableMessage && (
+                            <div className="form-error instance-codex-experimental-model__error">
+                              {formExperimentalModelUnavailableMessage}
                             </div>
                           )}
                         </div>
-                        <div className="instance-codex-quick-field">
-                          <label>
-                            {t(
-                              "instances.form.codexQuickConfig.autoCompactLimit",
-                              "自动压缩阈值",
-                            )}
-                          </label>
+                        <label className="instance-codex-experimental-model__switch">
                           <input
-                            className="form-input"
-                            type="text"
-                            inputMode="numeric"
-                            value={formCodexQuickCompactLimitInput}
+                            id="instance-codex-experimental-model-catalog"
+                            type="checkbox"
+                            checked={formExperimentalModelCatalogEnabled}
                             onChange={(event) => {
                               setFormCodexQuickConfigError(null);
-                              setFormCodexQuickCompactLimitInput(
-                                event.target.value,
+                              setFormExperimentalModelCatalogEnabled(
+                                event.target.checked,
                               );
                             }}
-                            disabled={!formCodexQuickIsCustomPreset}
-                            placeholder={String(
-                              DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
-                            )}
+                            disabled={
+                              actionLoading === editing.id ||
+                              (!formExperimentalModelCatalogEnabled &&
+                                !formCodexQuickConfig?.experimental_model_catalog_available)
+                            }
                           />
-                          <p className="form-hint">
-                            {t(
-                              "instances.form.codexQuickConfig.autoCompactLimitHint",
-                              "写入 model_auto_compact_token_limit。仅在“自定义”模式可编辑。",
-                            )}
-                          </p>
-                          {formCodexQuickCompactLimitError && (
-                            <div className="form-error instance-codex-quick-field-error">
-                              {formCodexQuickCompactLimitError}
-                            </div>
-                          )}
-                        </div>
+                          <span className="instance-codex-experimental-model__switch-track" />
+                        </label>
                       </div>
-                      {formCodexQuickConfigWarning && (
-                        <p className="form-hint warning">
-                          {formCodexQuickConfigWarning}
-                        </p>
+                      {formExperimentalModelCatalogEnabled && (
+                        <CodexExperimentalModelEditor
+                          models={formExperimentalModels}
+                          defaultModelId={formExperimentalDefaultModelId}
+                          mode="summary"
+                          onChange={(models) => {
+                            setFormExperimentalModels(models);
+                            setFormCodexQuickConfigError(null);
+                          }}
+                          onDefaultModelChange={(modelId) => {
+                            setFormExperimentalDefaultModelId(modelId);
+                            setFormCodexQuickConfigError(null);
+                          }}
+                          onValidationChange={setFormExperimentalModelsError}
+                          disabled={actionLoading === editing.id}
+                        />
                       )}
                       {formCodexQuickConfigError && (
                         <div className="form-error">

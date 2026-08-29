@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
-  ArrowDown,
-  ArrowDownWideNarrow,
-  ArrowUp,
   Bug,
   Check,
   CircleAlert,
@@ -36,13 +33,15 @@ import type {
   CodexLocalAccessChatMessage,
   CodexLocalAccessChatStreamEvent,
   CodexLocalAccessCustomRoutingRule,
+  CodexLocalAccessImageGenerationPolicy,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
   CodexLocalAccessState,
   CodexLocalAccessStatsWindow,
   CodexLocalAccessUsageStats,
 } from "../types/codexLocalAccess";
-import { getCodexPlanFilterKey } from "../types/codex";
+import { getCodexPlanFilterKey, isCodexApiKeyAccount } from "../types/codex";
+import { scrollElementTo } from "../utils/reducedMotion";
 import {
   buildCodexAccountPresentation,
   buildQuotaPreviewLines,
@@ -58,25 +57,31 @@ import {
 } from "../utils/codexAccountOverview";
 import {
   formatCodexQuotaPoolPercent,
+  formatCodexQuotaPoolWindowLabel,
   summarizeCodexQuotaPool,
   type CodexQuotaPoolItem,
 } from "../utils/codexQuotaPool";
 import {
   getCodexLocalAccessAccountIneligibleReason,
   isCodexLocalAccessEligibleAccount,
+  resolveCodexLocalAccessInitialAccountIds,
 } from "../utils/codexLocalAccessAccounts";
-import { isBlockingCodexQuotaError } from "../utils/codexQuotaError";
+import { isBlockingCodexAccountQuotaError } from "../utils/codexQuotaError";
 import { AccountTagFilterDropdown } from "./AccountTagFilterDropdown";
+import { CodexAccountPoolHealthModal } from "./CodexAccountPoolHealthModal";
 import {
   MultiSelectFilterDropdown,
   type MultiSelectFilterOption,
 } from "./MultiSelectFilterDropdown";
 import { SingleSelectDropdown } from "./SingleSelectDropdown";
-import {
-  SingleSelectFilterDropdown,
-  type SingleSelectFilterOption,
-} from "./SingleSelectFilterDropdown";
 import { PaginationControls } from "./PaginationControls";
+import { CodexStatsRangePicker } from "./CodexStatsRangePicker";
+import { queryCodexLocalAccessStats } from "../services/codexLocalAccessService";
+import {
+  buildCodexStatsTimeRange,
+  type CodexStatsRangeKey,
+  type CodexStatsTimeRange,
+} from "../utils/codexStatsRange";
 import { useEscClose } from "../hooks/useEscClose";
 import {
   buildPaginationPageSizeStorageKey,
@@ -93,13 +98,10 @@ export interface CodexLocalAccessMemberViewConfig {
   filterTypes: string[];
   tagFilter: string[];
   groupFilter: string[];
-  sortBy: string;
-  sortDirection: "asc" | "desc";
   tierFilterOptions: MultiSelectFilterOption[];
   tierFilterAllLabel: string;
   availableTags: string[];
   groupFilterOptions: MultiSelectFilterOption[];
-  sortOptions: SingleSelectFilterOption[];
   onSearchQueryChange: (value: string) => void;
   onToggleFilterType: (value: string) => void;
   onClearFilterTypes: () => void;
@@ -107,8 +109,6 @@ export interface CodexLocalAccessMemberViewConfig {
   onClearTagFilter: () => void;
   onToggleGroupFilter: (value: string) => void;
   onClearGroupFilter: () => void;
-  onSortByChange: (value: string) => void;
-  onToggleSortDirection: () => void;
 }
 
 interface CodexLocalAccessModalProps {
@@ -119,6 +119,7 @@ interface CodexLocalAccessModalProps {
   addressOptions: Array<{ value: string; label: string }>;
   onAddressKindChange: (value: string) => void;
   accounts: CodexAccount[];
+  accountsLoaded: boolean;
   accountGroups: CodexAccountGroup[];
   memberView?: CodexLocalAccessMemberViewConfig;
   initialSelectedIds: string[];
@@ -128,6 +129,11 @@ interface CodexLocalAccessModalProps {
   onSaveAccounts: (payload: {
     accountIds: string[];
     restrictFreeAccounts: boolean;
+    backupAccountIds: string[];
+    preferredAccountIds: string[];
+    sessionAffinity: boolean;
+    sessionAffinityTtlMs: number;
+    imageGenerationAccountPolicies: Record<string, CodexLocalAccessImageGenerationPolicy>;
   }) => Promise<unknown> | unknown;
   onClearStats: () => Promise<unknown> | unknown;
   onRefreshStats: () => Promise<unknown> | unknown;
@@ -146,8 +152,11 @@ interface CodexLocalAccessModalProps {
   ) => Promise<unknown> | unknown;
   onUpdateDebugLogs: (debugLogs: boolean) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
+  onRestartSidecar: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
   onToggleEnabled: () => Promise<unknown> | unknown;
+  onRecoverAccounts: (accountIds: string[]) => Promise<void>;
+  healthActionBusy: boolean;
   onStreamTestMessage: (payload: {
     sessionId: string;
     modelId: string;
@@ -157,9 +166,9 @@ interface CodexLocalAccessModalProps {
   testing: boolean;
   starting: boolean;
   portCleanupBusy: boolean;
+  sidecarRestarting: boolean;
 }
 
-type StatsRangeKey = "daily" | "weekly" | "monthly";
 type CopyableField = "apiPortUrl" | "baseUrl" | "apiKey" | "modelId";
 
 interface AccountPoolHealthSummary {
@@ -170,13 +179,17 @@ interface AccountPoolHealthSummary {
   missing: number;
   authError: number;
   quotaLimited: number;
+  poolUnavailable: number;
 }
 
 interface CustomRoutingDraftRule {
   priority: number;
   weight: number;
   isBackup: boolean;
+  isPreferred: boolean;
 }
+
+type AccountUsagePriority = "lowest" | "normal" | "highest";
 
 interface TestChatMessage {
   id: string;
@@ -205,7 +218,7 @@ function normalizeAccessScope(value: string): CodexLocalAccessScope {
 
 function normalizeStatsRangeKey(
   value: string | null | undefined,
-): StatsRangeKey {
+): CodexStatsRangeKey {
   if (value === "weekly" || value === "monthly") {
     return value;
   }
@@ -233,7 +246,15 @@ function normalizeCustomRoutingWeight(value: number): number {
   );
 }
 
-function readStoredStatsRange(): StatsRangeKey {
+function resolveAccountUsagePriority(
+  rule?: Pick<CustomRoutingDraftRule, "isBackup" | "isPreferred"> | null,
+): AccountUsagePriority {
+  if (rule?.isPreferred) return "highest";
+  if (rule?.isBackup) return "lowest";
+  return "normal";
+}
+
+function readStoredStatsRange(): CodexStatsRangeKey {
   try {
     return normalizeStatsRangeKey(
       localStorage.getItem(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY),
@@ -243,7 +264,7 @@ function readStoredStatsRange(): StatsRangeKey {
   }
 }
 
-function persistStatsRange(value: StatsRangeKey): void {
+function persistStatsRange(value: CodexStatsRangeKey): void {
   try {
     localStorage.setItem(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY, value);
   } catch {
@@ -264,6 +285,14 @@ function formatLatencyMs(value: number): string {
   return `${Math.round(value)}ms`;
 }
 
+function formatUsdCost(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "$0.00";
+  if (value < 0.000001) return "<$0.000001";
+  if (value < 0.01) return `$${value.toFixed(6)}`;
+  if (value < 1) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
+}
+
 function createTestChatMessage(
   role: TestChatMessage["role"],
   content: string,
@@ -280,10 +309,15 @@ function createTestChatMessage(
 function formatQuotaPoolLabel(
   baseLabel: string,
   pool: CodexQuotaPoolItem,
-  hourlyLabel: string,
   weeklyLabel: string,
 ): string {
-  return `${baseLabel} · ${hourlyLabel} ${formatCodexQuotaPoolPercent(pool.hourly)} · ${weeklyLabel} ${formatCodexQuotaPoolPercent(pool.weekly)}`;
+  const quotaText = pool.windows
+    .map(
+      (window) =>
+        `${formatCodexQuotaPoolWindowLabel(window.label, weeklyLabel)} ${formatCodexQuotaPoolPercent(window.percentage)}`,
+    )
+    .join(" · ");
+  return quotaText ? `${baseLabel} · ${quotaText}` : baseLabel;
 }
 
 function summarizeQuotaPoolsByPlan(
@@ -315,9 +349,10 @@ function isAbnormalAccountFailure(
 ): boolean {
   return Boolean(
     health &&
-    health.consecutiveFailures >= 3 &&
-    health.lastFailureCategory &&
-    ABNORMAL_ACCOUNT_FAILURE_CATEGORIES.has(health.lastFailureCategory),
+    ((health.schedulerAvailable === false && !health.cooldowns.length) ||
+      (health.consecutiveFailures >= 3 &&
+        health.lastFailureCategory &&
+        ABNORMAL_ACCOUNT_FAILURE_CATEGORIES.has(health.lastFailureCategory))),
   );
 }
 
@@ -329,6 +364,7 @@ export function CodexLocalAccessModal({
   addressOptions,
   onAddressKindChange,
   accounts,
+  accountsLoaded,
   accountGroups,
   memberView,
   initialSelectedIds,
@@ -345,13 +381,17 @@ export function CodexLocalAccessModal({
   onUpdateUpstreamProxyConfig,
   onUpdateDebugLogs,
   onRotateApiKey,
+  onRestartSidecar,
   onKillPort,
   onToggleEnabled,
+  onRecoverAccounts,
+  healthActionBusy,
   onStreamTestMessage,
   saving,
   testing,
   starting,
   portCleanupBusy,
+  sidecarRestarting,
 }: CodexLocalAccessModalProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -360,10 +400,16 @@ export function CodexLocalAccessModal({
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [groupFilter, setGroupFilter] = useState<string[]>([]);
   const [restrictFreeAccounts, setRestrictFreeAccounts] = useState(true);
+  const [sessionAffinity, setSessionAffinity] = useState(true);
+  const [sessionAffinityTtlSeconds, setSessionAffinityTtlSeconds] =
+    useState("3600");
+  const [sessionAffinityTtlError, setSessionAffinityTtlError] = useState("");
+  const [imageGenerationPolicies, setImageGenerationPolicies] = useState<Record<string, CodexLocalAccessImageGenerationPolicy>>({});
   const [membersDraftDirty, setMembersDraftDirty] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [healthModalOpen, setHealthModalOpen] = useState(false);
   const [testDialogRunning, setTestDialogRunning] = useState(false);
   const [testChatMessages, setTestChatMessages] = useState<TestChatMessage[]>(
     [],
@@ -375,9 +421,16 @@ export function CodexLocalAccessModal({
   const [keyVisible, setKeyVisible] = useState(false);
   const [copiedField, setCopiedField] = useState<CopyableField | null>(null);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [statsRange, setStatsRange] = useState<StatsRangeKey>(() =>
+  const [statsRange, setStatsRange] = useState<CodexStatsRangeKey>(() =>
     readStoredStatsRange(),
   );
+  const [statsTimeRange, setStatsTimeRange] = useState<CodexStatsTimeRange>(() =>
+    buildCodexStatsTimeRange(readStoredStatsRange()),
+  );
+  const [filteredStatsWindow, setFilteredStatsWindow] =
+    useState<CodexLocalAccessStatsWindow | null>(null);
+  const [statsRangeError, setStatsRangeError] = useState("");
+  const statsRequestSeqRef = useRef(0);
   const [customRoutingOpen, setCustomRoutingOpen] = useState(false);
   const [customRoutingQuery, setCustomRoutingQuery] = useState("");
   const [customRoutingFilterTypes, setCustomRoutingFilterTypes] = useState<
@@ -393,19 +446,14 @@ export function CodexLocalAccessModal({
   const [customRoutingDraft, setCustomRoutingDraft] = useState<
     Record<string, CustomRoutingDraftRule>
   >({});
-  const [backupConfirmAccountId, setBackupConfirmAccountId] = useState<
-    string | null
-  >(null);
-  useEscClose(
-    isOpen,
-    backupConfirmAccountId ? () => setBackupConfirmAccountId(null) : onClose,
-  );
+  useEscClose(isOpen, onClose);
   const [customRoutingBulkPriority, setCustomRoutingBulkPriority] =
     useState("10");
   const [customRoutingBulkWeight, setCustomRoutingBulkWeight] = useState("1");
   const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
   const customRoutingSelectAllRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const sessionAffinityTtlInputRef = useRef<HTMLInputElement | null>(null);
   const testChatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const collection = state?.collection ?? null;
@@ -415,24 +463,8 @@ export function CodexLocalAccessModal({
     addressKind === "lan" && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
   const modelIds = state?.modelIds ?? [];
   const stats = state?.stats;
-  const statsRangeOptions = useMemo(
-    () =>
-      [
-        { key: "daily", label: t("codex.localAccess.statsRange.daily", "日") },
-        {
-          key: "weekly",
-          label: t("codex.localAccess.statsRange.weekly", "周"),
-        },
-        {
-          key: "monthly",
-          label: t("codex.localAccess.statsRange.monthly", "月"),
-        },
-      ] satisfies Array<{ key: StatsRangeKey; label: string }>,
-    [t],
-  );
   const quotaPoolLabels = useMemo(
     () => ({
-      hourly: t("codex.localAccess.quotaPool.hourlyShort", "5h"),
       weekly: t("codex.localAccess.quotaPool.weeklyShort", "周"),
       title: t("codex.localAccess.quotaPool.title", "额度池"),
     }),
@@ -440,9 +472,10 @@ export function CodexLocalAccessModal({
   );
   const selectedStatsWindow =
     useMemo<CodexLocalAccessStatsWindow | null>(() => {
-      if (!stats) return null;
+      if (filteredStatsWindow) return filteredStatsWindow;
+      if (!stats || statsRange === "custom") return null;
       return stats[statsRange];
-    }, [stats, statsRange]);
+    }, [filteredStatsWindow, stats, statsRange]);
   const selectedTotals = selectedStatsWindow?.totals;
   const routingStrategy = collection?.routingStrategy ?? "auto";
   const accessScope = collection?.accessScope ?? "localhost";
@@ -457,8 +490,8 @@ export function CodexLocalAccessModal({
     [modelIds],
   );
   const avgLatencyMs =
-    selectedTotals && selectedTotals.requestCount > 0
-      ? selectedTotals.totalLatencyMs / selectedTotals.requestCount
+    selectedTotals && selectedTotals.successCount > 0
+      ? selectedTotals.totalLatencyMs / selectedTotals.successCount
       : 0;
   const successRate =
     selectedTotals && selectedTotals.requestCount > 0
@@ -490,6 +523,7 @@ export function CodexLocalAccessModal({
     });
   const testDialogBusy = testDialogRunning || testing;
   const actionBusy = saving || testing || starting || portCleanupBusy;
+  const membersInteractionDisabled = actionBusy || !accountsLoaded;
   const summaryStats = useMemo(
     () => [
       {
@@ -520,6 +554,15 @@ export function CodexLocalAccessModal({
           reasoning: formatCompactNumber(selectedTotals?.reasoningTokens ?? 0),
           defaultValue: "缓存 {{cached}} / 思考 {{reasoning}}",
         }),
+      },
+      {
+        key: "cost",
+        label: t("codex.localAccess.stats.estimatedCost", "估算价值"),
+        value: formatUsdCost(selectedTotals?.estimatedCostUsd ?? 0),
+        detail: t(
+          "codex.localAccess.stats.estimatedCostDetail",
+          "按当前请求价格快照累计",
+        ),
       },
       {
         key: "latency",
@@ -560,6 +603,7 @@ export function CodexLocalAccessModal({
       missing: 0,
       authError: 0,
       quotaLimited: 0,
+      poolUnavailable: state?.accountPoolHealth?.length ?? 0,
     };
 
     (collection?.accountIds ?? []).forEach((accountId) => {
@@ -574,7 +618,7 @@ export function CodexLocalAccessModal({
         summary.cooldown += 1;
         return;
       }
-      if (isBlockingCodexQuotaError(account.quota_error)) {
+      if (isBlockingCodexAccountQuotaError(account)) {
         summary.quotaLimited += 1;
         return;
       }
@@ -590,21 +634,32 @@ export function CodexLocalAccessModal({
     });
 
     return summary;
-  }, [collection?.accountIds, localAccessAccounts, state?.accountHealth]);
+  }, [
+    collection?.accountIds,
+    localAccessAccounts,
+    state?.accountHealth,
+    state?.accountPoolHealth?.length,
+  ]);
   const initialRestrictFreeAccounts = collection?.restrictFreeAccounts ?? true;
-  const normalizedInitialSelectedIds = useMemo(() => {
-    const accountById = new Map(
-      localAccessAccounts.map((account) => [account.id, account]),
-    );
-    return initialSelectedIds.filter((accountId) => {
-      const account = accountById.get(accountId);
-      if (!account) return false;
-      return isCodexLocalAccessEligibleAccount(
-        account,
+  const initialSessionAffinity = collection?.sessionAffinity ?? true;
+  const initialSessionAffinityTtlSeconds = Math.round(
+    (collection?.sessionAffinityTtlMs ?? 60 * 60 * 1000) / 1000,
+  );
+  const normalizedInitialSelectedIds = useMemo(
+    () =>
+      resolveCodexLocalAccessInitialAccountIds(
+        initialSelectedIds,
+        localAccessAccounts,
         initialRestrictFreeAccounts,
-      );
-    });
-  }, [initialSelectedIds, initialRestrictFreeAccounts, localAccessAccounts]);
+        accountsLoaded,
+      ),
+    [
+      accountsLoaded,
+      initialSelectedIds,
+      initialRestrictFreeAccounts,
+      localAccessAccounts,
+    ],
+  );
 
   useEffect(() => {
     if (!isOpen || mode !== "members") {
@@ -622,7 +677,11 @@ export function CodexLocalAccessModal({
       setTagFilter([]);
       setGroupFilter([]);
       setRestrictFreeAccounts(initialRestrictFreeAccounts);
+      setSessionAffinity(initialSessionAffinity);
+      setSessionAffinityTtlSeconds(String(initialSessionAffinityTtlSeconds));
+      setImageGenerationPolicies(collection?.imageGenerationAccountPolicies ?? {});
     }
+    setSessionAffinityTtlError("");
     setError("");
     setNotice("");
     setTestDialogOpen(false);
@@ -640,28 +699,31 @@ export function CodexLocalAccessModal({
     setCustomRoutingTagFilter([]);
     setCustomRoutingError("");
     setCustomRoutingSelected(new Set());
-    setBackupConfirmAccountId(null);
-    setCustomRoutingDraft(() => {
-      const ruleMap = new Map(
-        (collection?.customRoutingRules ?? []).map((rule) => [
-          rule.accountId,
-          {
-            priority: normalizeCustomRoutingPriority(rule.priority),
-            weight: normalizeCustomRoutingWeight(rule.weight),
-            isBackup: Boolean(rule.isBackup),
-          },
-        ]),
-      );
-      const next: Record<string, CustomRoutingDraftRule> = {};
-      (collection?.accountIds ?? []).forEach((accountId) => {
-        next[accountId] = ruleMap.get(accountId) ?? {
-          priority: CUSTOM_ROUTING_PRIORITY_MIN,
-          weight: CUSTOM_ROUTING_WEIGHT_MIN,
-          isBackup: false,
-        };
+    if (shouldResetMembersDraft) {
+      setCustomRoutingDraft(() => {
+        const ruleMap = new Map(
+          (collection?.customRoutingRules ?? []).map((rule) => [
+            rule.accountId,
+            {
+              priority: normalizeCustomRoutingPriority(rule.priority),
+              weight: normalizeCustomRoutingWeight(rule.weight),
+              isBackup: Boolean(rule.isBackup),
+              isPreferred: Boolean(rule.isPreferred),
+            },
+          ]),
+        );
+        const next: Record<string, CustomRoutingDraftRule> = {};
+        (collection?.accountIds ?? []).forEach((accountId) => {
+          next[accountId] = ruleMap.get(accountId) ?? {
+            priority: CUSTOM_ROUTING_PRIORITY_MIN,
+            weight: CUSTOM_ROUTING_WEIGHT_MIN,
+            isBackup: false,
+            isPreferred: false,
+          };
+        });
+        return next;
       });
-      return next;
-    });
+    }
     setCustomRoutingBulkPriority("10");
     setCustomRoutingBulkWeight("1");
     if (mode === "members") {
@@ -676,6 +738,8 @@ export function CodexLocalAccessModal({
     collection?.port,
     collection?.upstreamProxyUrl,
     initialRestrictFreeAccounts,
+    initialSessionAffinity,
+    initialSessionAffinityTtlSeconds,
     isOpen,
     membersDraftDirty,
     mode,
@@ -697,11 +761,37 @@ export function CodexLocalAccessModal({
   }, [statsRange]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const requestSeq = ++statsRequestSeqRef.current;
+    setStatsRangeError("");
+    void queryCodexLocalAccessStats(statsTimeRange.startAt, statsTimeRange.endAt)
+      .then((window) => {
+        if (requestSeq === statsRequestSeqRef.current) setFilteredStatsWindow(window);
+      })
+      .catch((err) => {
+        if (requestSeq === statsRequestSeqRef.current) {
+          setStatsRangeError(String(err).replace(/^Error:\s*/, ""));
+        }
+      });
+  }, [isOpen, stats?.updatedAt, statsTimeRange.endAt, statsTimeRange.startAt]);
+
+  const handleStatsPresetChange = (
+    key: Exclude<CodexStatsRangeKey, "custom">,
+    range: CodexStatsTimeRange,
+  ) => {
+    setStatsRange(key);
+    setStatsTimeRange(range);
+  };
+
+  const handleCustomStatsRangeApply = (range: CodexStatsTimeRange) => {
+    setStatsRange("custom");
+    setStatsTimeRange(range);
+  };
+
+  useEffect(() => {
     if (!testDialogOpen) return;
-    testChatScrollRef.current?.scrollTo({
-      top: testChatScrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
+    const node = testChatScrollRef.current;
+    scrollElementTo(node, { top: node?.scrollHeight ?? 0 });
   }, [testChatMessages, testDialogOpen]);
 
   const normalizeTag = (value: string) => value.trim().toLowerCase();
@@ -755,12 +845,12 @@ export function CodexLocalAccessModal({
   const tierCounts = useMemo(() => {
     const counts = createCodexPlanFilterCounts(localAccessAccounts.length);
     localAccessAccounts.forEach((account) => {
-      if (!isBlockingCodexQuotaError(account.quota_error)) {
+      if (!isBlockingCodexAccountQuotaError(account)) {
         counts.VALID += 1;
       }
       const tier = getCodexPlanFilterKey(account);
       incrementCodexPlanFilterCount(counts, tier);
-      if (isBlockingCodexQuotaError(account.quota_error)) {
+      if (isBlockingCodexAccountQuotaError(account)) {
         counts.ERROR += 1;
       }
     });
@@ -777,11 +867,9 @@ export function CodexLocalAccessModal({
       formatQuotaPoolLabel(
         t("common.shared.filter.all", { count: tierCounts.all }),
         quotaPoolSummary.all,
-        quotaPoolLabels.hourly,
         quotaPoolLabels.weekly,
       ),
     [
-      quotaPoolLabels.hourly,
       quotaPoolLabels.weekly,
       quotaPoolSummary.all,
       t,
@@ -803,13 +891,11 @@ export function CodexLocalAccessModal({
           label: formatQuotaPoolLabel(
             option.label,
             pool,
-            quotaPoolLabels.hourly,
             quotaPoolLabels.weekly,
           ),
         };
       }),
     [
-      quotaPoolLabels.hourly,
       quotaPoolLabels.weekly,
       quotaPoolByPlan,
       t,
@@ -882,7 +968,7 @@ export function CodexLocalAccessModal({
 
       if (
         requireValidAccounts &&
-        isBlockingCodexQuotaError(account.quota_error)
+        isBlockingCodexAccountQuotaError(account)
       ) {
         return false;
       }
@@ -891,7 +977,7 @@ export function CodexLocalAccessModal({
         const planKey = getCodexPlanFilterKey(account);
         const matchesType = Array.from(selectedTypes).some((type) => {
           if (type === "ERROR") {
-            return isBlockingCodexQuotaError(account.quota_error);
+            return isBlockingCodexAccountQuotaError(account);
           }
           return type === planKey;
         });
@@ -921,7 +1007,13 @@ export function CodexLocalAccessModal({
           account,
           restrictFreeAccounts,
         );
-        if (ineligibleReason === "chat_completions_api_key") {
+        // Keep unsupported accounts visible so users know why they cannot join.
+        if (
+          ineligibleReason === "chat_completions_api_key" ||
+          ineligibleReason === "deepseek_unsupported" ||
+          ineligibleReason === "pending_oauth" ||
+          ineligibleReason === "web_session_quota_only"
+        ) {
           return true;
         }
         if (isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)) {
@@ -948,8 +1040,6 @@ export function CodexLocalAccessModal({
     memberSearchQuery,
     restrictFreeAccounts,
     memberTagFilter,
-    memberView?.sortBy,
-    memberView?.sortDirection,
   ]);
 
   const visibleEnabledAccounts = useMemo(
@@ -979,15 +1069,92 @@ export function CodexLocalAccessModal({
       selectedVisibleCount > 0 && !allVisibleSelected;
   }, [allVisibleSelected, selectedVisibleCount]);
 
+  const initialBackupAccountIds = useMemo(() => {
+    const selectedSet = new Set(normalizedInitialSelectedIds);
+    return new Set(
+      (collection?.customRoutingRules ?? [])
+        .filter(
+          (rule) => rule.isBackup && selectedSet.has(rule.accountId),
+        )
+        .map((rule) => rule.accountId),
+    );
+  }, [collection?.customRoutingRules, normalizedInitialSelectedIds]);
+
+  const initialPreferredAccountIds = useMemo(() => {
+    const selectedSet = new Set(normalizedInitialSelectedIds);
+    return new Set(
+      (collection?.customRoutingRules ?? [])
+        .filter(
+          (rule) => rule.isPreferred && selectedSet.has(rule.accountId),
+        )
+        .map((rule) => rule.accountId),
+    );
+  }, [collection?.customRoutingRules, normalizedInitialSelectedIds]);
+
+  const currentBackupAccountIds = useMemo(() => {
+    const ruleBackupById = new Map(
+      (collection?.customRoutingRules ?? []).map((rule) => [
+        rule.accountId,
+        Boolean(rule.isBackup),
+      ]),
+    );
+    const next = new Set<string>();
+    selected.forEach((accountId) => {
+      const isBackup =
+        customRoutingDraft[accountId]?.isBackup ??
+        ruleBackupById.get(accountId) ??
+        false;
+      if (isBackup) {
+        next.add(accountId);
+      }
+    });
+    return next;
+  }, [collection?.customRoutingRules, customRoutingDraft, selected]);
+
+  const currentPreferredAccountIds = useMemo(() => {
+    const rulePreferredById = new Map(
+      (collection?.customRoutingRules ?? []).map((rule) => [
+        rule.accountId,
+        Boolean(rule.isPreferred),
+      ]),
+    );
+    const next = new Set<string>();
+    selected.forEach((accountId) => {
+      const isPreferred =
+        customRoutingDraft[accountId]?.isPreferred ??
+        rulePreferredById.get(accountId) ??
+        false;
+      if (isPreferred) {
+        next.add(accountId);
+      }
+    });
+    return next;
+  }, [collection?.customRoutingRules, customRoutingDraft, selected]);
+
   const selectionDirty = useMemo(
     () =>
       !areSetsEqual(selected, new Set(normalizedInitialSelectedIds)) ||
-      restrictFreeAccounts !== (collection?.restrictFreeAccounts ?? true),
+      restrictFreeAccounts !== (collection?.restrictFreeAccounts ?? true) ||
+      sessionAffinity !== initialSessionAffinity ||
+      sessionAffinityTtlSeconds !== String(initialSessionAffinityTtlSeconds) ||
+      !areSetsEqual(currentBackupAccountIds, initialBackupAccountIds) ||
+      !areSetsEqual(currentPreferredAccountIds, initialPreferredAccountIds) ||
+      JSON.stringify(imageGenerationPolicies) !==
+        JSON.stringify(collection?.imageGenerationAccountPolicies ?? {}),
     [
       collection?.restrictFreeAccounts,
+      currentBackupAccountIds,
+      currentPreferredAccountIds,
+      initialSessionAffinity,
+      initialSessionAffinityTtlSeconds,
+      initialBackupAccountIds,
+      initialPreferredAccountIds,
       normalizedInitialSelectedIds,
       restrictFreeAccounts,
+      sessionAffinity,
+      sessionAffinityTtlSeconds,
       selected,
+      imageGenerationPolicies,
     ],
   );
 
@@ -1087,6 +1254,31 @@ export function CodexLocalAccessModal({
       }>,
     [t],
   );
+  const memberPriorityOptions = useMemo(
+    () => [
+      {
+        value: "lowest",
+        label: t("codex.localAccess.memberPriorityLowest", "最低"),
+      },
+      {
+        value: "normal",
+        label: t("codex.localAccess.memberPriorityNormal", "正常"),
+      },
+      {
+        value: "highest",
+        label: t("codex.localAccess.memberPriorityHighest", "最高"),
+      },
+    ],
+    [t],
+  );
+  const imageGenerationPolicyOptions = useMemo(
+    () => [
+      { value: "inherit", label: t("codex.localAccess.imagePolicy.inherit", "生图：自动") },
+      { value: "enabled", label: t("codex.localAccess.imagePolicy.enabled", "生图：启用") },
+      { value: "disabled", label: t("codex.localAccess.imagePolicy.disabled", "生图：禁用") },
+    ],
+    [t],
+  );
   const accessScopeOptions = useMemo(
     () => [
       {
@@ -1137,6 +1329,7 @@ export function CodexLocalAccessModal({
         priority: normalizeCustomRoutingPriority(rule.priority),
         weight: normalizeCustomRoutingWeight(rule.weight),
         isBackup: Boolean(rule.isBackup),
+        isPreferred: Boolean(rule.isPreferred),
       });
     });
     return next;
@@ -1168,12 +1361,12 @@ export function CodexLocalAccessModal({
   const customRoutingTierCounts = useMemo(() => {
     const counts = createCodexPlanFilterCounts(customRoutingAccounts.length);
     customRoutingAccounts.forEach((account) => {
-      if (!isBlockingCodexQuotaError(account.quota_error)) {
+      if (!isBlockingCodexAccountQuotaError(account)) {
         counts.VALID += 1;
       }
       const tier = getCodexPlanFilterKey(account);
       incrementCodexPlanFilterCount(counts, tier);
-      if (isBlockingCodexQuotaError(account.quota_error)) {
+      if (isBlockingCodexAccountQuotaError(account)) {
         counts.ERROR += 1;
       }
     });
@@ -1189,13 +1382,11 @@ export function CodexLocalAccessModal({
       formatQuotaPoolLabel(
         t("common.shared.filter.all", { count: customRoutingTierCounts.all }),
         customRoutingQuotaPoolSummary.all,
-        quotaPoolLabels.hourly,
         quotaPoolLabels.weekly,
       ),
     [
       customRoutingQuotaPoolSummary.all,
       customRoutingTierCounts.all,
-      quotaPoolLabels.hourly,
       quotaPoolLabels.weekly,
       t,
     ],
@@ -1218,7 +1409,6 @@ export function CodexLocalAccessModal({
           label: formatQuotaPoolLabel(
             option.label,
             pool,
-            quotaPoolLabels.hourly,
             quotaPoolLabels.weekly,
           ),
         };
@@ -1226,7 +1416,6 @@ export function CodexLocalAccessModal({
     [
       customRoutingQuotaPoolByPlan,
       customRoutingTierCounts,
-      quotaPoolLabels.hourly,
       quotaPoolLabels.weekly,
       t,
     ],
@@ -1257,7 +1446,7 @@ export function CodexLocalAccessModal({
 
       if (
         requireValidAccounts &&
-        isBlockingCodexQuotaError(account.quota_error)
+        isBlockingCodexAccountQuotaError(account)
       ) {
         return false;
       }
@@ -1266,7 +1455,7 @@ export function CodexLocalAccessModal({
         const planKey = getCodexPlanFilterKey(account);
         const matchesType = Array.from(selectedTypes).some((type) => {
           if (type === "ERROR") {
-            return isBlockingCodexQuotaError(account.quota_error);
+            return isBlockingCodexAccountQuotaError(account);
           }
           return type === planKey;
         });
@@ -1328,7 +1517,9 @@ export function CodexLocalAccessModal({
   };
 
   const toggleSelectAllVisible = () => {
-    if (actionBusy || visibleEnabledAccounts.length === 0) return;
+    if (membersInteractionDisabled || visibleEnabledAccounts.length === 0) {
+      return;
+    }
     setMembersDraftDirty(true);
     setSelected((prev) => {
       const next = new Set(prev);
@@ -1346,13 +1537,38 @@ export function CodexLocalAccessModal({
   };
 
   const handleToggleRestrictFreeAccounts = async () => {
-    if (actionBusy) return;
+    if (membersInteractionDisabled) return;
     setMembersDraftDirty(true);
     setRestrictFreeAccounts((prev) => !prev);
   };
 
+  const handleToggleSessionAffinity = async () => {
+    if (membersInteractionDisabled) return;
+    setSessionAffinityTtlError("");
+    if (sessionAffinity) {
+      setMembersDraftDirty(true);
+      setSessionAffinity(false);
+      return;
+    }
+    const confirmed = await confirmDialog(
+      t(
+        "codex.localAccess.modal.sessionAffinityDescription",
+        "开启后，同一个会话会尽量持续使用同一个账号进行对话；账号不可用时仍会按调度策略切换，超过过期时间后会重新选择账号。",
+      ),
+      {
+        title: t(
+          "codex.localAccess.modal.sessionAffinityConfirmTitle",
+          "开启会话亲和？",
+        ),
+      },
+    );
+    if (!confirmed) return;
+    setMembersDraftDirty(true);
+    setSessionAffinity(true);
+  };
+
   const toggleSelect = (accountId: string) => {
-    if (actionBusy) return;
+    if (membersInteractionDisabled) return;
     const account = localAccessAccountById.get(accountId);
     if (!account) return;
     const isSelectionBlocked =
@@ -1374,17 +1590,65 @@ export function CodexLocalAccessModal({
   };
 
   const handleSaveMembers = async () => {
+    if (!accountsLoaded) return;
     setError("");
     setNotice("");
+    setSessionAffinityTtlError("");
+    const parsedSessionAffinityTtlSeconds = Number(
+      sessionAffinityTtlSeconds.trim(),
+    );
+    if (
+      !Number.isInteger(parsedSessionAffinityTtlSeconds) ||
+      parsedSessionAffinityTtlSeconds < 60 ||
+      parsedSessionAffinityTtlSeconds > 86400
+    ) {
+      const message = t("codex.apiService.validation.numberRange", {
+        min: 60,
+        max: 86400,
+        defaultValue: "请输入 {{min}} 到 {{max}} 之间的数字",
+      });
+      setSessionAffinityTtlError(message);
+      requestAnimationFrame(() => sessionAffinityTtlInputRef.current?.focus());
+      return;
+    }
     try {
       const filtered = Array.from(selected).filter((accountId) => {
         const account = localAccessAccountById.get(accountId);
         if (!account) return false;
         return isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts);
       });
+      const backupAccountIds = filtered.filter((accountId) => {
+        const isBackup =
+          customRoutingDraft[accountId]?.isBackup ??
+          customRoutingRuleByAccountId.get(accountId)?.isBackup ??
+          false;
+        return isBackup;
+      });
+      const preferredAccountIds = filtered.filter((accountId) => {
+        const isPreferred =
+          customRoutingDraft[accountId]?.isPreferred ??
+          customRoutingRuleByAccountId.get(accountId)?.isPreferred ??
+          false;
+        return isPreferred;
+      });
       await onSaveAccounts({
         accountIds: filtered,
         restrictFreeAccounts,
+        backupAccountIds,
+        preferredAccountIds,
+        sessionAffinity,
+        sessionAffinityTtlMs: parsedSessionAffinityTtlSeconds * 1000,
+        imageGenerationAccountPolicies: Object.fromEntries(
+          filtered.map((accountId) => [
+            accountId,
+            imageGenerationPolicies[accountId] ??
+              (isCodexApiKeyAccount(
+                localAccessAccountById.get(accountId) as CodexAccount,
+              )
+                ? "disabled"
+                : "inherit"),
+          ]),
+        ),
       });
       onClose();
     } catch (err) {
@@ -1437,7 +1701,6 @@ export function CodexLocalAccessModal({
 
   const closeCustomRoutingDialog = () => {
     if (saving) return;
-    setBackupConfirmAccountId(null);
     setCustomRoutingOpen(false);
     setCustomRoutingError("");
     setCustomRoutingSelected(new Set());
@@ -1482,6 +1745,7 @@ export function CodexLocalAccessModal({
         priority: CUSTOM_ROUTING_PRIORITY_MIN,
         weight: CUSTOM_ROUTING_WEIGHT_MIN,
         isBackup: false,
+        isPreferred: false,
       };
       return {
         ...prev,
@@ -1496,48 +1760,35 @@ export function CodexLocalAccessModal({
     });
   };
 
-  const toggleCustomRoutingBackup = (accountId: string) => {
-    if (saving) return;
+  const updateMemberUsagePriority = (
+    accountId: string,
+    usagePriority: AccountUsagePriority,
+  ) => {
+    if (membersInteractionDisabled) return;
+    if (!selected.has(accountId)) {
+      setMembersDraftDirty(true);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.add(accountId);
+        return next;
+      });
+    }
     const current = customRoutingDraft[accountId] ??
       customRoutingRuleByAccountId.get(accountId) ?? {
         priority: CUSTOM_ROUTING_PRIORITY_MIN,
         weight: CUSTOM_ROUTING_WEIGHT_MIN,
         isBackup: false,
+        isPreferred: false,
       };
-    if (!current.isBackup) {
-      setBackupConfirmAccountId(accountId);
-      return;
-    }
-    setCustomRoutingDraft((prev) => {
-      return {
-        ...prev,
-        [accountId]: {
-          ...current,
-          isBackup: false,
-        },
-      };
-    });
-  };
-
-  const confirmCustomRoutingBackup = () => {
-    const accountId = backupConfirmAccountId;
-    if (!accountId || saving) return;
-    setCustomRoutingDraft((prev) => {
-      const current = prev[accountId] ??
-        customRoutingRuleByAccountId.get(accountId) ?? {
-          priority: CUSTOM_ROUTING_PRIORITY_MIN,
-          weight: CUSTOM_ROUTING_WEIGHT_MIN,
-          isBackup: false,
-        };
-      return {
-        ...prev,
-        [accountId]: {
-          ...current,
-          isBackup: true,
-        },
-      };
-    });
-    setBackupConfirmAccountId(null);
+    setMembersDraftDirty(true);
+    setCustomRoutingDraft((prev) => ({
+      ...prev,
+      [accountId]: {
+        ...current,
+        isBackup: usagePriority === "lowest",
+        isPreferred: usagePriority === "highest",
+      },
+    }));
   };
 
   const applyCustomRoutingBatch = () => {
@@ -1560,6 +1811,10 @@ export function CodexLocalAccessModal({
             next[accountId]?.isBackup ??
             customRoutingRuleByAccountId.get(accountId)?.isBackup ??
             false,
+          isPreferred:
+            next[accountId]?.isPreferred ??
+            customRoutingRuleByAccountId.get(accountId)?.isPreferred ??
+            false,
         };
       });
       return next;
@@ -1574,6 +1829,7 @@ export function CodexLocalAccessModal({
         priority: CUSTOM_ROUTING_PRIORITY_MIN,
         weight: CUSTOM_ROUTING_WEIGHT_MIN,
         isBackup: false,
+        isPreferred: false,
       };
     });
     setCustomRoutingDraft(next);
@@ -1591,12 +1847,14 @@ export function CodexLocalAccessModal({
             priority: CUSTOM_ROUTING_PRIORITY_MIN,
             weight: CUSTOM_ROUTING_WEIGHT_MIN,
             isBackup: false,
+            isPreferred: false,
           };
         return {
           accountId,
           priority: normalizeCustomRoutingPriority(rule.priority),
           weight: normalizeCustomRoutingWeight(rule.weight),
           isBackup: rule.isBackup,
+          isPreferred: rule.isPreferred,
         };
       });
       await onUpdateCustomRouting(rules);
@@ -1742,6 +2000,28 @@ export function CodexLocalAccessModal({
         await onKillPort();
       },
       t("codex.localAccess.killPortSuccessUnknown", "API 服务端口已清理"),
+    );
+  };
+
+  const handleRestartSidecar = async () => {
+    const confirmed = await confirmDialog(
+      t(
+        "codex.localAccess.restartConfirmMessage",
+        "将仅重启 API 服务 Sidecar，不修改账号、Token、API Key 或账号池配置。正在进行中的请求可能中断，确认继续吗？",
+      ),
+      {
+        title: t("codex.localAccess.restartTitle", "重启 API 服务"),
+        kind: "warning",
+        okLabel: t("codex.localAccess.restartAction", "重启 Sidecar"),
+        cancelLabel: t("common.cancel", "取消"),
+      },
+    );
+    if (!confirmed) return;
+    await runAction(
+      async () => {
+        await onRestartSidecar();
+      },
+      t("codex.localAccess.restartSuccess", "API 服务 Sidecar 已重启"),
     );
   };
 
@@ -2141,19 +2421,33 @@ export function CodexLocalAccessModal({
                 <CircleAlert size={14} />
                 <span>{state.lastError}</span>
                 {collection && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm codex-local-access-inline-action"
-                    onClick={() => void handleKillPort()}
-                    disabled={actionBusy}
-                  >
-                    {portCleanupBusy ? (
-                      <RefreshCw size={14} className="loading-spinner" />
-                    ) : (
-                      <Wrench size={14} />
-                    )}
-                    {t("codex.localAccess.killPortAction", "清理端口")}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm codex-local-access-inline-action"
+                      onClick={() => void handleRestartSidecar()}
+                      disabled={actionBusy || sidecarRestarting}
+                    >
+                      <RefreshCw
+                        size={14}
+                        className={sidecarRestarting ? "loading-spinner" : ""}
+                      />
+                      {t("codex.localAccess.restartAction", "重启 Sidecar")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm codex-local-access-inline-action"
+                      onClick={() => void handleKillPort()}
+                      disabled={actionBusy}
+                    >
+                      {portCleanupBusy ? (
+                        <RefreshCw size={14} className="loading-spinner" />
+                      ) : (
+                        <Wrench size={14} />
+                      )}
+                      {t("codex.localAccess.killPortAction", "清理端口")}
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -2180,30 +2474,15 @@ export function CodexLocalAccessModal({
                     <span>{t("codex.localAccess.statsTitle", "总量统计")}</span>
                   </div>
                   <div className="codex-local-access-summary-actions">
-                    <div
-                      className="codex-local-access-stats-range-tabs"
-                      role="tablist"
-                      aria-label={t(
-                        "codex.localAccess.statsRange.label",
-                        "统计范围",
-                      )}
-                    >
-                      {statsRangeOptions.map((option) => (
-                        <button
-                          key={option.key}
-                          type="button"
-                          role="tab"
-                          className={`codex-local-access-stats-range-tab${
-                            statsRange === option.key ? " is-active" : ""
-                          }`}
-                          aria-selected={statsRange === option.key}
-                          onClick={() => setStatsRange(option.key)}
-                          disabled={actionBusy}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
+                    <CodexStatsRangePicker
+                      value={statsRange}
+                      range={statsTimeRange}
+                      onPresetChange={handleStatsPresetChange}
+                      onCustomApply={handleCustomStatsRangeApply}
+                      disabled={actionBusy}
+                      error={statsRangeError}
+                      compact
+                    />
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
@@ -2239,12 +2518,14 @@ export function CodexLocalAccessModal({
                     aria-label={quotaPoolLabels.title}
                   >
                     {accountPoolHealthSummary.total > 0 && (
-                      <div
+                      <button
+                        type="button"
                         className={`codex-local-access-quota-pool-card codex-local-access-health-pool-card${
                           accountPoolHealthSummary.available <
                             accountPoolHealthSummary.total ||
                           accountPoolHealthSummary.abnormal > 0 ||
-                          accountPoolHealthSummary.cooldown > 0
+                          accountPoolHealthSummary.cooldown > 0 ||
+                          accountPoolHealthSummary.poolUnavailable > 0
                             ? " has-issue"
                             : ""
                         }`}
@@ -2256,9 +2537,16 @@ export function CodexLocalAccessModal({
                           missing: accountPoolHealthSummary.missing,
                           authError: accountPoolHealthSummary.authError,
                           quotaLimited: accountPoolHealthSummary.quotaLimited,
+                          poolUnavailable:
+                            accountPoolHealthSummary.poolUnavailable,
                           defaultValue:
                             "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}",
                         })}
+                        onClick={() => setHealthModalOpen(true)}
+                        aria-label={t(
+                          "codex.localAccess.accountPoolHealth.openDetails",
+                          "查看异常账号详情",
+                        )}
                       >
                         <span className="codex-local-access-quota-pool-plan">
                           {t(
@@ -2270,7 +2558,8 @@ export function CodexLocalAccessModal({
                           {accountPoolHealthSummary.available ===
                             accountPoolHealthSummary.total &&
                           accountPoolHealthSummary.abnormal === 0 &&
-                          accountPoolHealthSummary.cooldown === 0
+                          accountPoolHealthSummary.cooldown === 0 &&
+                          accountPoolHealthSummary.poolUnavailable === 0
                             ? t(
                                 "codex.localAccess.accountPoolHealth.allAvailable",
                                 {
@@ -2288,20 +2577,23 @@ export function CodexLocalAccessModal({
                               )}
                         </span>
                         {(accountPoolHealthSummary.abnormal > 0 ||
-                          accountPoolHealthSummary.cooldown > 0) && (
+                          accountPoolHealthSummary.cooldown > 0 ||
+                          accountPoolHealthSummary.poolUnavailable > 0) && (
                           <span className="codex-local-access-quota-pool-value codex-local-access-health-issue">
                             {t(
                               "codex.localAccess.accountPoolHealth.issueSummary",
                               {
                                 abnormal: accountPoolHealthSummary.abnormal,
                                 cooldown: accountPoolHealthSummary.cooldown,
+                                poolUnavailable:
+                                  accountPoolHealthSummary.poolUnavailable,
                                 defaultValue:
-                                  "异常 {{abnormal}} · 冷却 {{cooldown}}",
+                                  "异常 {{abnormal}} · 池异常 {{poolUnavailable}} · 冷却 {{cooldown}}",
                               },
                             )}
                           </span>
                         )}
-                      </div>
+                      </button>
                     )}
                     {currentQuotaPoolSummary.visiblePlans.map((item) => (
                       <div
@@ -2311,14 +2603,18 @@ export function CodexLocalAccessModal({
                         <span className="codex-local-access-quota-pool-plan">
                           {item.key} ({item.count})
                         </span>
-                        <span className="codex-local-access-quota-pool-value">
-                          {quotaPoolLabels.hourly}{" "}
-                          {formatCodexQuotaPoolPercent(item.hourly)}
-                        </span>
-                        <span className="codex-local-access-quota-pool-value">
-                          {quotaPoolLabels.weekly}{" "}
-                          {formatCodexQuotaPoolPercent(item.weekly)}
-                        </span>
+                        {item.windows.map((window) => (
+                          <span
+                            key={window.key}
+                            className="codex-local-access-quota-pool-value"
+                          >
+                            {formatCodexQuotaPoolWindowLabel(
+                              window.label,
+                              quotaPoolLabels.weekly,
+                            )}{" "}
+                            {formatCodexQuotaPoolPercent(window.percentage)}
+                          </span>
+                        ))}
                       </div>
                     ))}
                   </div>
@@ -2701,20 +2997,103 @@ export function CodexLocalAccessModal({
                       {t("codex.localAccess.memberTitle", "集合成员")}
                     </span>
                   </div>
-                  <label className="codex-local-access-free-toggle">
-                    <input
-                      type="checkbox"
-                      checked={restrictFreeAccounts}
-                      onChange={() => void handleToggleRestrictFreeAccounts()}
-                      disabled={actionBusy}
-                    />
-                    <span>
-                      {t(
-                        "codex.localAccess.modal.restrictFreeToggle",
-                        "限制 Free 账号使用",
+                  <div className="codex-local-access-member-head-actions">
+                    <label className="codex-local-access-free-toggle">
+                      <input
+                        type="checkbox"
+                        checked={restrictFreeAccounts}
+                        onChange={() => void handleToggleRestrictFreeAccounts()}
+                        disabled={membersInteractionDisabled}
+                      />
+                      <span>
+                        {t(
+                          "codex.localAccess.modal.restrictFreeToggle",
+                          "限制 Free 账号使用",
+                        )}
+                      </span>
+                    </label>
+                    <div className="codex-local-access-session-affinity-settings">
+                      <div className="codex-local-access-session-affinity-row">
+                        <label className="codex-local-access-session-affinity-toggle">
+                          <input
+                            type="checkbox"
+                            checked={sessionAffinity}
+                            onChange={() => void handleToggleSessionAffinity()}
+                            disabled={membersInteractionDisabled}
+                          />
+                          <span>
+                            {t(
+                              "codex.apiService.routing.sessionAffinity",
+                              "会话亲和",
+                            )}
+                          </span>
+                        </label>
+                        <label className="codex-local-access-session-affinity-expiry">
+                          <span>
+                            {t(
+                              "codex.apiService.routing.sessionAffinityTtl",
+                              "过期时间（秒）",
+                            )}
+                          </span>
+                          <input
+                            ref={sessionAffinityTtlInputRef}
+                            type="number"
+                            min={60}
+                            max={86400}
+                            value={sessionAffinityTtlSeconds}
+                            aria-invalid={Boolean(sessionAffinityTtlError)}
+                            onChange={(event) => {
+                              setMembersDraftDirty(true);
+                              setSessionAffinityTtlError("");
+                              setSessionAffinityTtlSeconds(event.target.value);
+                            }}
+                            disabled={membersInteractionDisabled}
+                          />
+                        </label>
+                      </div>
+                      {sessionAffinityTtlError && (
+                        <small className="codex-local-access-session-affinity-error">
+                          {sessionAffinityTtlError}
+                        </small>
                       )}
-                    </span>
-                  </label>
+                    </div>
+                    {collection && (
+                      <>
+                        <div className="codex-local-access-member-routing">
+                          <SingleSelectDropdown
+                            value={routingStrategy}
+                            options={routingStrategyOptions}
+                            onChange={(value) =>
+                              void handleChangeRoutingStrategy(value)
+                            }
+                            disabled={saving || testing || starting}
+                            ariaLabel={t(
+                              "codex.localAccess.routingLabel",
+                              "调度策略",
+                            )}
+                          />
+                        </div>
+                        {routingStrategy === "custom" && (
+                          <button
+                            type="button"
+                            className="folder-icon-btn codex-local-access-toolbar-btn"
+                            onClick={openCustomRoutingDialog}
+                            disabled={saving || testing || starting}
+                            title={t(
+                              "codex.localAccess.customRoutingEdit",
+                              "编辑自定义调度",
+                            )}
+                            aria-label={t(
+                              "codex.localAccess.customRoutingEdit",
+                              "编辑自定义调度",
+                            )}
+                          >
+                            <SlidersHorizontal size={14} />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="group-account-toolbar">
@@ -2811,47 +3190,6 @@ export function CodexLocalAccessModal({
                         setGroupFilter([]);
                       }}
                     />
-                    {memberView && (
-                      <>
-                        <SingleSelectFilterDropdown
-                          value={memberView.sortBy}
-                          options={memberView.sortOptions}
-                          ariaLabel={t("common.shared.sortLabel", "排序")}
-                          icon={<ArrowDownWideNarrow size={14} />}
-                          disabled={actionBusy}
-                          onChange={memberView.onSortByChange}
-                        />
-                        {memberView.sortBy !== "custom" && (
-                          <button
-                            type="button"
-                            className="sort-direction-btn codex-local-access-member-sort-direction"
-                            onClick={memberView.onToggleSortDirection}
-                            disabled={actionBusy}
-                            title={
-                              memberView.sortDirection === "desc"
-                                ? t(
-                                    "common.shared.sort.descTooltip",
-                                    "当前：降序，点击切换为升序",
-                                  )
-                                : t(
-                                    "common.shared.sort.ascTooltip",
-                                    "当前：升序，点击切换为降序",
-                                  )
-                            }
-                            aria-label={t(
-                              "common.shared.sort.toggleDirection",
-                              "切换排序方向",
-                            )}
-                          >
-                            {memberView.sortDirection === "desc" ? (
-                              <ArrowDown size={15} />
-                            ) : (
-                              <ArrowUp size={15} />
-                            )}
-                          </button>
-                        )}
-                      </>
-                    )}
                   </div>
                 </div>
 
@@ -2861,13 +3199,20 @@ export function CodexLocalAccessModal({
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
-                    disabled={actionBusy || visibleEnabledAccounts.length === 0}
+                    disabled={
+                      membersInteractionDisabled ||
+                      visibleEnabledAccounts.length === 0
+                    }
                   />
                   <div className="group-account-main" />
                 </div>
 
                 <div className="group-account-list codex-local-access-member-list">
-                  {localAccessAccounts.length === 0 ? (
+                  {!accountsLoaded ? (
+                    <div className="group-account-empty">
+                      {t("common.loading", "加载中...")}
+                    </div>
+                  ) : localAccessAccounts.length === 0 ? (
                     <div className="group-account-empty">
                       {t(
                         "codex.localAccess.modal.empty",
@@ -2891,40 +3236,127 @@ export function CodexLocalAccessModal({
                         );
                       const isChatCompletionsApiKeyUnsupported =
                         ineligibleReason === "chat_completions_api_key";
+                      const isDeepSeekUnsupported =
+                        ineligibleReason === "deepseek_unsupported";
+                      const isPendingOauthUnsupported =
+                        ineligibleReason === "pending_oauth";
+                      const isWebSessionUnsupported =
+                        ineligibleReason === "web_session_quota_only";
+                      const isJoinUnsupported =
+                        isChatCompletionsApiKeyUnsupported ||
+                        isDeepSeekUnsupported ||
+                        isPendingOauthUnsupported ||
+                        isWebSessionUnsupported;
                       const isChecked =
-                        !isChatCompletionsApiKeyUnsupported &&
-                        selected.has(account.id);
+                        !isJoinUnsupported && selected.has(account.id);
+                      const usagePriority = resolveAccountUsagePriority(
+                        customRoutingDraft[account.id] ??
+                          customRoutingRuleByAccountId.get(account.id),
+                      );
                       const accountStats = allStatsByAccountId.get(
                         account.id,
                       )?.usage;
 
                       return (
-                        <label
+                        <div
                           key={account.id}
-                          className={`group-account-item${isChecked ? " is-current" : ""}${isChatCompletionsApiKeyUnsupported ? " is-disabled" : ""}`}
+                          className={`group-account-item${isChecked ? " is-current" : ""}${isJoinUnsupported ? " is-disabled" : ""}`}
                         >
                           <input
                             type="checkbox"
+                            className="codex-local-access-member-select"
                             checked={isChecked}
                             disabled={
-                              actionBusy || isChatCompletionsApiKeyUnsupported
+                              membersInteractionDisabled || isJoinUnsupported
                             }
                             onChange={() => toggleSelect(account.id)}
+                            aria-label={maskAccountText(
+                              presentation.displayName,
+                            )}
                           />
                           <div className="group-account-main">
                             <div className="codex-local-access-member-mainline">
-                              <span
+                              <button
+                                type="button"
                                 className="group-account-email"
                                 title={maskAccountText(
                                   presentation.displayName,
                                 )}
+                                disabled={
+                                  membersInteractionDisabled || isJoinUnsupported
+                                }
+                                onClick={() => toggleSelect(account.id)}
                               >
                                 {maskAccountText(presentation.displayName)}
-                              </span>
+                              </button>
                               <span
-                                className={`tier-badge ${presentation.planClass}`}
+                                className="codex-local-access-member-priority-slot"
+                                title={t(
+                                  "codex.localAccess.memberPriorityDesc",
+                                  "最高优先使用，正常按当前规则调度，最低仅在其他账号不可用时使用。",
+                                )}
                               >
-                                {presentation.planLabel}
+                                {!isJoinUnsupported ? (
+                                  <>
+                                    <span className="codex-local-access-member-priority-label">
+                                      {t(
+                                        "codex.localAccess.memberPriorityLabel",
+                                        "优先级",
+                                      )}
+                                    </span>
+                                    <SingleSelectDropdown
+                                      value={usagePriority}
+                                      options={memberPriorityOptions}
+                                      className="codex-local-access-member-priority-dropdown"
+                                      menuClassName="codex-local-access-member-priority-menu"
+                                      menuWidth={112}
+                                      menuMaxHeight={180}
+                                      ariaLabel={t(
+                                        "codex.localAccess.memberPriorityLabel",
+                                        "优先级",
+                                      )}
+                                      disabled={membersInteractionDisabled}
+                                      onChange={(value) =>
+                                        updateMemberUsagePriority(
+                                          account.id,
+                                          value as AccountUsagePriority,
+                                        )
+                                      }
+                                    />
+                                  </>
+                                ) : null}
+                              </span>
+                              <span className="codex-local-access-member-plan">
+                                {!isJoinUnsupported && (
+                                  <SingleSelectDropdown
+                                    value={
+                                      imageGenerationPolicies[account.id] ??
+                                      (isCodexApiKeyAccount(account)
+                                        ? "disabled"
+                                        : "inherit")
+                                    }
+                                    options={imageGenerationPolicyOptions}
+                                    className="codex-local-access-member-image-policy-dropdown"
+                                    menuClassName="codex-local-access-member-image-policy-menu"
+                                    menuWidth={120}
+                                    ariaLabel={t(
+                                      "codex.localAccess.imagePolicy.label",
+                                      "生图策略",
+                                    )}
+                                    disabled={membersInteractionDisabled}
+                                    onChange={(value) =>
+                                      setImageGenerationPolicies((prev) => ({
+                                        ...prev,
+                                        [account.id]: value as CodexLocalAccessImageGenerationPolicy,
+                                      }))
+                                    }
+                                  />
+                                )}
+                                <span
+                                  className={`tier-badge ${presentation.planClass}`}
+                                >
+                                  {presentation.planLabel}
+                                </span>
                               </span>
                               <span className="codex-local-access-member-metric">
                                 {t("codex.localAccess.stats.accountRequests", {
@@ -2932,18 +3364,44 @@ export function CodexLocalAccessModal({
                                   defaultValue: "{{count}} 次请求",
                                 })}
                               </span>
-                              {isChatCompletionsApiKeyUnsupported && (
-                                <span className="codex-local-access-member-unsupported">
-                                  {t(
-                                    "codex.localAccess.modal.chatApiKeyUnsupported",
-                                    "Chat Completions 协议不支持加入 API 服务",
-                                  )}
-                                </span>
-                              )}
-                              {renderQuotaPreview(presentation, 2)}
+                              <span className="codex-local-access-member-trailing">
+                                {isChatCompletionsApiKeyUnsupported && (
+                                  <span className="codex-local-access-member-unsupported">
+                                    {t(
+                                      "codex.localAccess.modal.chatApiKeyUnsupported",
+                                      "Chat Completions 协议不支持加入 API 服务",
+                                    )}
+                                  </span>
+                                )}
+                                {isDeepSeekUnsupported && (
+                                  <span className="codex-local-access-member-unsupported">
+                                    {t(
+                                      "codex.localAccess.modal.deepseekUnsupported",
+                                      "DeepSeek 暂不支持加入",
+                                    )}
+                                  </span>
+                                )}
+                                {isPendingOauthUnsupported && (
+                                  <span className="codex-local-access-member-unsupported">
+                                    {t(
+                                      "codex.localAccess.modal.pendingOauthUnsupported",
+                                      "待授权账号不可加入 API 服务",
+                                    )}
+                                  </span>
+                                )}
+                                {isWebSessionUnsupported && (
+                                  <span className="codex-local-access-member-unsupported">
+                                    {t(
+                                      "codex.webSessionImport.apiIneligible",
+                                      "Web Session 仅支持查看额度，不能加入 API 服务",
+                                    )}
+                                  </span>
+                                )}
+                                {renderQuotaPreview(presentation, 2)}
+                              </span>
                             </div>
                           </div>
-                        </label>
+                        </div>
                       );
                     })
                   )}
@@ -2974,14 +3432,13 @@ export function CodexLocalAccessModal({
                 <button
                   className="btn btn-secondary"
                   onClick={onClose}
-                  disabled={actionBusy}
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   className="btn btn-primary"
                   onClick={() => void handleSaveMembers()}
-                  disabled={actionBusy || !selectionDirty}
+                  disabled={membersInteractionDisabled || !selectionDirty}
                 >
                   {saving
                     ? t("common.saving")
@@ -2992,7 +3449,6 @@ export function CodexLocalAccessModal({
               <button
                 className="btn btn-secondary"
                 onClick={onClose}
-                disabled={actionBusy}
               >
                 {t("common.close")}
               </button>
@@ -3021,7 +3477,7 @@ export function CodexLocalAccessModal({
                 <p>
                   {t(
                     "codex.localAccess.customRoutingDesc",
-                    "设置账号的优先级、权重和备用角色，控制账号选择顺序与负载分配。",
+                    "设置账号的优先级和权重，控制账号选择顺序与负载分配。",
                   )}
                 </p>
               </div>
@@ -3069,20 +3525,6 @@ export function CodexLocalAccessModal({
                     {t(
                       "codex.localAccess.customRoutingWeightDesc",
                       "相同优先级内用于负载均衡；权重越高，分到的请求越多。",
-                    )}
-                  </span>
-                </div>
-                <div className="codex-local-access-custom-routing-guide-card">
-                  <strong>
-                    {t(
-                      "codex.localAccess.customRoutingBackupTitle",
-                      "备用账号",
-                    )}
-                  </strong>
-                  <span>
-                    {t(
-                      "codex.localAccess.customRoutingBackupDesc",
-                      "仅在所有普通账号不可用时使用；普通账号恢复后，新请求会自动切回。",
                     )}
                   </span>
                 </div>
@@ -3247,6 +3689,7 @@ export function CodexLocalAccessModal({
                         priority: CUSTOM_ROUTING_PRIORITY_MIN,
                         weight: CUSTOM_ROUTING_WEIGHT_MIN,
                         isBackup: false,
+                        isPreferred: false,
                       };
                       const checked = customRoutingSelected.has(account.id);
 
@@ -3277,35 +3720,22 @@ export function CodexLocalAccessModal({
                             >
                               {presentation.planLabel}
                             </span>
-                            <label
-                              className="codex-local-access-custom-routing-backup-field"
-                              title={t(
-                                "codex.localAccess.customRoutingBackupDesc",
-                                "仅在所有普通账号不可用时使用；普通账号恢复后，新请求会自动切回。",
-                              )}
-                            >
-                              <span className="codex-local-access-custom-routing-backup-label">
+                            {(draftRule.isBackup || draftRule.isPreferred) && (
+                              <span
+                                className="codex-local-access-custom-routing-usage-priority-badge"
+                                title={t(
+                                  "codex.localAccess.memberPriorityDesc",
+                                  "最高优先使用，正常按当前规则调度，最低仅在其他账号不可用时使用。",
+                                )}
+                              >
                                 {t(
-                                  "codex.localAccess.customRoutingBackupShort",
-                                  "备用",
+                                  draftRule.isPreferred
+                                    ? "codex.localAccess.memberPriorityHighest"
+                                    : "codex.localAccess.memberPriorityLowest",
+                                  draftRule.isPreferred ? "最高" : "最低",
                                 )}
                               </span>
-                              <span className="codex-local-access-custom-routing-switch">
-                                <input
-                                  type="checkbox"
-                                  checked={draftRule.isBackup}
-                                  onChange={() =>
-                                    toggleCustomRoutingBackup(account.id)
-                                  }
-                                  disabled={saving}
-                                  aria-label={t(
-                                    "codex.localAccess.customRoutingBackupTitle",
-                                    "备用账号",
-                                  )}
-                                />
-                                <span className="codex-local-access-custom-routing-switch-track" />
-                              </span>
-                            </label>
+                            )}
                           </div>
                           <div className="codex-local-access-custom-routing-quota">
                             {renderQuotaPreview(presentation, 2) ?? (
@@ -3392,67 +3822,6 @@ export function CodexLocalAccessModal({
                 {saving
                   ? t("common.saving")
                   : t("codex.localAccess.customRoutingSave", "保存自定义调度")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {customRoutingOpen && backupConfirmAccountId && (
-        <div className="modal-overlay codex-local-access-backup-confirm-overlay">
-          <div
-            className="modal codex-local-access-backup-confirm-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="codex-local-access-backup-confirm-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header codex-local-access-backup-confirm-header">
-              <h3 id="codex-local-access-backup-confirm-title">
-                {t("codex.localAccess.customRoutingBackupTitle", "备用账号")}
-              </h3>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setBackupConfirmAccountId(null)}
-                disabled={saving}
-                aria-label={t("common.close")}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="modal-body codex-local-access-backup-confirm-body">
-              <strong>
-                {maskAccountText(
-                  localAccessAccountById.get(backupConfirmAccountId)
-                    ?.account_name ||
-                    localAccessAccountById.get(backupConfirmAccountId)?.email ||
-                    backupConfirmAccountId,
-                )}
-              </strong>
-              <p>
-                {t(
-                  "codex.localAccess.customRoutingBackupDesc",
-                  "仅在所有普通账号不可用时使用；普通账号恢复后，新请求会自动切回。",
-                )}
-              </p>
-            </div>
-            <div className="modal-footer codex-local-access-backup-confirm-footer">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setBackupConfirmAccountId(null)}
-                disabled={saving}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={confirmCustomRoutingBackup}
-                disabled={saving}
-              >
-                {t("common.confirm")}
               </button>
             </div>
           </div>
@@ -3629,6 +3998,18 @@ export function CodexLocalAccessModal({
           </div>
         </div>
       )}
+      <CodexAccountPoolHealthModal
+        isOpen={healthModalOpen}
+        accountIds={collection?.accountIds ?? []}
+        accounts={accounts}
+        accountHealth={state?.accountHealth ?? []}
+        accountPoolHealth={state?.accountPoolHealth ?? []}
+        actionBusy={healthActionBusy}
+        maskAccountText={(value) => maskAccountText(value)}
+        onClose={() => setHealthModalOpen(false)}
+        onRecover={(accountId) => onRecoverAccounts([accountId])}
+        onRecoverAll={onRecoverAccounts}
+      />
     </>
   );
 }

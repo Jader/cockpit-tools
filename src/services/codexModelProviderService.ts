@@ -6,6 +6,9 @@ import type {
 } from '../utils/codexProviderGateway';
 import type { CodexLocalAccessTestResult } from '../types/codexLocalAccess';
 import {
+  DEEPSEEK_API_BASE_URL,
+  DEEPSEEK_API_PROVIDER_ID,
+  DEEPSEEK_CODEX_MODEL_CATALOG,
   findCodexApiProviderPresetById,
   resolveCodexApiProviderPresetId,
 } from '../utils/codexProviderPresets';
@@ -17,6 +20,7 @@ import {
   queryModelProviderUsage,
   type ModelProviderUsageSummary,
 } from './modelProviderUsageService';
+import { moveCodexProviderApiKey } from '../utils/codexModelProviderApiKeyMove';
 
 export interface CodexModelProviderApiKey {
   id: string;
@@ -33,6 +37,7 @@ export interface CodexModelProvider {
   sourceTag?: string;
   integrationType?: 'sub2api' | 'new_api';
   modelCatalog?: string[];
+  modelContextWindows?: Record<string, number>;
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
   visionRoutingModel?: string;
@@ -43,7 +48,6 @@ export interface CodexModelProvider {
   supportsWebsockets: boolean;
   enableModePreference?: CodexProviderEnableModePreference;
   boundOauthAccountId?: string | null;
-  boundOauthUseLocalGateway?: boolean;
   apiKeys: CodexModelProviderApiKey[];
   createdAt: number;
   updatedAt: number;
@@ -53,12 +57,14 @@ export type CodexModelProviderUsageSummary = ModelProviderUsageSummary;
 
 interface UpsertFromCredentialInput {
   providerId?: string | null;
+  previousProviderId?: string | null;
   providerName?: string | null;
   apiBaseUrl: string;
   apiKey: string;
   apiKeyName?: string | null;
   sourceTag?: string | null;
   modelCatalog?: string[];
+  modelContextWindows?: Record<string, number>;
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
   visionRoutingModel?: string | null;
@@ -125,6 +131,28 @@ function normalizeModelCatalog(value: unknown): string[] | undefined {
   return models.length > 0 ? models : undefined;
 }
 
+export function normalizeModelContextWindows(
+  value: unknown,
+  catalog: string[] = [],
+): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const next: Record<string, number> = {};
+  const keys = catalog.length > 0 ? catalog : Object.keys(source);
+  for (const model of keys) {
+    const trimmed = model.trim();
+    if (!trimmed) continue;
+    const raw =
+      source[trimmed] ??
+      Object.entries(source).find(([name]) => name.trim().toLowerCase() === trimmed.toLowerCase())?.[1];
+    const parsed = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim());
+    if (Number.isInteger(parsed) && parsed > 0) {
+      next[trimmed] = parsed;
+    }
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 function normalizeModelCapabilities(
   value: unknown,
 ): Record<string, { supportsVision?: boolean }> | undefined {
@@ -180,6 +208,72 @@ function migrateApiKeyFunProviderWireApi(
     return provider;
   });
   return { providers: next, changed };
+}
+
+/**
+ * Normalize official DeepSeek providers without locking Chat Completions out.
+ * - Missing wireApi defaults to Responses.
+ * - Explicit chat_completions is preserved.
+ * - Responses mode writes official catalog slugs and talks to the official API directly.
+ */
+function enforceDeepSeekProvider(provider: CodexModelProvider): boolean {
+  if (resolveCodexApiProviderPresetId(provider.baseUrl) !== DEEPSEEK_API_PROVIDER_ID) {
+    return false;
+  }
+  const modelCatalog = [...DEEPSEEK_CODEX_MODEL_CATALOG];
+  let changed = false;
+
+  if (provider.baseUrl !== DEEPSEEK_API_BASE_URL) {
+    provider.baseUrl = DEEPSEEK_API_BASE_URL;
+    changed = true;
+  }
+
+  const wireApi = provider.wireApi;
+  if (wireApi !== 'responses' && wireApi !== 'chat_completions') {
+    provider.wireApi = 'responses';
+    changed = true;
+  }
+
+  if (provider.wireApi === 'responses') {
+    if (provider.supportsWebsockets) {
+      provider.supportsWebsockets = false;
+      changed = true;
+    }
+    if (provider.supportsVision === true) {
+      provider.supportsVision = false;
+      changed = true;
+    }
+    if (provider.visionRoutingModel !== undefined) {
+      provider.visionRoutingModel = undefined;
+      changed = true;
+    }
+    if (provider.modelCapabilities !== undefined) {
+      provider.modelCapabilities = undefined;
+      changed = true;
+    }
+    if (
+      provider.modelCatalog?.length !== modelCatalog.length ||
+      modelCatalog.some((model, index) => provider.modelCatalog?.[index] !== model)
+    ) {
+      provider.modelCatalog = modelCatalog;
+      changed = true;
+    }
+  } else if (provider.wireApi === 'chat_completions') {
+    // Chat Completions stays on gateway path.
+    if (provider.enableModePreference === 'direct') {
+      provider.enableModePreference = 'gateway';
+      changed = true;
+    }
+    if (provider.supportsWebsockets) {
+      provider.supportsWebsockets = false;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    provider.updatedAt = Date.now();
+  }
+  return changed;
 }
 
 function presetModelCatalogForBaseUrl(baseUrl: string): string[] | undefined {
@@ -275,7 +369,6 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
     const boundOauthAccountId = normalizeBoundOauthAccountId(
       (item as { boundOauthAccountId?: unknown }).boundOauthAccountId,
     );
-    const hasBoundOauthUseLocalGateway = hasOwnProperty(item, 'boundOauthUseLocalGateway');
     const wireApi = normalizeWireApi((item as { wireApi?: unknown }).wireApi);
     providers.push({
       id: String((item as { id?: unknown }).id ?? createProviderId()),
@@ -288,10 +381,19 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       modelCatalog:
         normalizeModelCatalog((item as { modelCatalog?: unknown }).modelCatalog) ??
         presetModelCatalogForBaseUrl(baseUrl),
+      modelContextWindows: normalizeModelContextWindows(
+        (item as { modelContextWindows?: unknown }).modelContextWindows,
+        normalizeModelCatalog((item as { modelCatalog?: unknown }).modelCatalog) ??
+          presetModelCatalogForBaseUrl(baseUrl) ??
+          [],
+      ),
       supportsVision: (item as { supportsVision?: unknown }).supportsVision === true,
       modelCapabilities: normalizeModelCapabilities(
         (item as { modelCapabilities?: unknown }).modelCapabilities,
       ),
+      visionRoutingModel:
+        sanitizeName(String((item as { visionRoutingModel?: unknown }).visionRoutingModel ?? '')) ||
+        undefined,
       boundInstanceId: normalizeBoundInstanceId(
         (item as { boundInstanceId?: unknown }).boundInstanceId,
       ),
@@ -307,12 +409,6 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
         (item as { enableModePreference?: unknown }).enableModePreference,
       ),
       boundOauthAccountId,
-      boundOauthUseLocalGateway:
-        Boolean(boundOauthAccountId) &&
-        (
-          (item as { boundOauthUseLocalGateway?: unknown }).boundOauthUseLocalGateway === true ||
-          !hasBoundOauthUseLocalGateway
-        ),
       apiKeys: toValidApiKeys((item as { apiKeys?: unknown }).apiKeys, now),
       createdAt: Number((item as { createdAt?: unknown }).createdAt ?? now),
       updatedAt: Number((item as { updatedAt?: unknown }).updatedAt ?? now),
@@ -321,14 +417,14 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
   return providers.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-function hasLegacyBoundOauthProvider(raw: unknown): boolean {
+function hasRemovedImageGenerationSetting(raw: unknown): boolean {
   if (!Array.isArray(raw)) return false;
-  return raw.some((item) => {
-    if (!item || typeof item !== 'object') return false;
-    return Boolean(
-      normalizeBoundOauthAccountId((item as { boundOauthAccountId?: unknown }).boundOauthAccountId),
-    ) && !hasOwnProperty(item, 'boundOauthUseLocalGateway');
-  });
+  return raw.some(
+    (item) =>
+      Boolean(item) &&
+      typeof item === 'object' &&
+      hasOwnProperty(item, 'boundOauthUseLocalGateway'),
+  );
 }
 
 function hasLegacySupportsWebsocketsProvider(raw: unknown): boolean {
@@ -341,14 +437,14 @@ function hasLegacySupportsWebsocketsProvider(raw: unknown): boolean {
 
 async function loadProvidersFromDisk(): Promise<{
   providers: CodexModelProvider[];
-  migratedBoundOauthUseLocalGateway: boolean;
+  removedImageGenerationSetting: boolean;
   migratedSupportsWebsockets: boolean;
 }> {
   const raw = await invoke<string>('load_codex_model_providers');
   const parsed = JSON.parse(raw);
   return {
     providers: toValidProviderList(parsed),
-    migratedBoundOauthUseLocalGateway: hasLegacyBoundOauthProvider(parsed),
+    removedImageGenerationSetting: hasRemovedImageGenerationSetting(parsed),
     migratedSupportsWebsockets: hasLegacySupportsWebsocketsProvider(parsed),
   };
 }
@@ -363,7 +459,7 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   if (cachedProviders !== null) return cloneProviders(cachedProviders);
   const loadResult = await loadProvidersFromDisk().catch(() => ({
     providers: [],
-    migratedBoundOauthUseLocalGateway: false,
+    removedImageGenerationSetting: false,
     migratedSupportsWebsockets: false,
   }));
   const loadedProviders = loadResult.providers;
@@ -376,10 +472,15 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   });
   const migration = migrateApiKeyFunProviderWireApi(loaded);
   loaded = migration.providers;
+  let migratedDeepSeek = false;
+  for (const provider of loaded) {
+    migratedDeepSeek = enforceDeepSeekProvider(provider) || migratedDeepSeek;
+  }
   if (
     loaded.length !== loadedProviders.length ||
     migration.changed ||
-    loadResult.migratedBoundOauthUseLocalGateway ||
+    migratedDeepSeek ||
+    loadResult.removedImageGenerationSetting ||
     loadResult.migratedSupportsWebsockets
   ) {
     await saveProvidersToDisk(loaded).catch(() => { });
@@ -433,9 +534,7 @@ function ensureApiKeyOnProvider(
   const now = Date.now();
   const existing = provider.apiKeys.find((item) => sanitizeApiKey(item.apiKey) === normalized);
   if (existing) {
-    if (apiKeyName && sanitizeName(apiKeyName)) {
-      existing.name = sanitizeName(apiKeyName);
-    }
+    // #1510: reusing the same key must not clobber a saved display name.
     existing.updatedAt = now;
     return;
   }
@@ -453,6 +552,7 @@ export async function createCodexModelProvider(input: {
   baseUrl: string;
   sourceTag?: string;
   modelCatalog?: string[];
+  modelContextWindows?: Record<string, number>;
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
   visionRoutingModel?: string;
@@ -464,7 +564,6 @@ export async function createCodexModelProvider(input: {
   enableModePreference?: CodexProviderEnableModePreference;
   integrationType?: 'sub2api' | 'new_api';
   boundOauthAccountId?: string | null;
-  boundOauthUseLocalGateway?: boolean;
   initialApiKey?: string;
   initialApiKeyName?: string;
 }): Promise<CodexModelProvider> {
@@ -488,6 +587,12 @@ export async function createCodexModelProvider(input: {
     modelCatalog:
       normalizeModelCatalog(input.modelCatalog) ??
       presetModelCatalogForBaseUrl(baseUrl),
+    modelContextWindows: normalizeModelContextWindows(
+      input.modelContextWindows,
+      normalizeModelCatalog(input.modelCatalog) ??
+        presetModelCatalogForBaseUrl(baseUrl) ??
+        [],
+    ),
     supportsVision: input.supportsVision === true,
     modelCapabilities: normalizeModelCapabilities(input.modelCapabilities),
     visionRoutingModel: sanitizeName(input.visionRoutingModel ?? '') || undefined,
@@ -498,13 +603,11 @@ export async function createCodexModelProvider(input: {
     supportsWebsockets: normalizeSupportsWebsockets(input.supportsWebsockets, wireApi, baseUrl),
     enableModePreference: normalizeEnableModePreference(input.enableModePreference),
     boundOauthAccountId: normalizeBoundOauthAccountId(input.boundOauthAccountId),
-    boundOauthUseLocalGateway:
-      Boolean(normalizeBoundOauthAccountId(input.boundOauthAccountId)) &&
-      input.boundOauthUseLocalGateway === true,
     apiKeys: [],
     createdAt: now,
     updatedAt: now,
   };
+  enforceDeepSeekProvider(provider);
   if (input.initialApiKey) {
     ensureApiKeyOnProvider(provider, input.initialApiKey, input.initialApiKeyName);
   }
@@ -520,6 +623,7 @@ export async function updateCodexModelProvider(
     baseUrl?: string;
     sourceTag?: string | null;
     modelCatalog?: string[] | null;
+    modelContextWindows?: Record<string, number> | null;
     supportsVision?: boolean;
     modelCapabilities?: Record<string, { supportsVision?: boolean }> | null;
     visionRoutingModel?: string | null;
@@ -531,7 +635,6 @@ export async function updateCodexModelProvider(
     enableModePreference?: CodexProviderEnableModePreference | null;
     integrationType?: 'sub2api' | 'new_api' | null;
     boundOauthAccountId?: string | null;
-    boundOauthUseLocalGateway?: boolean;
   },
 ): Promise<CodexModelProvider> {
   const providers = await ensureProvidersLoaded();
@@ -567,6 +670,17 @@ export async function updateCodexModelProvider(
         : normalizeModelCatalog(patch.modelCatalog);
   } else if (!provider.modelCatalog || provider.modelCatalog.length === 0) {
     provider.modelCatalog = presetModelCatalogForBaseUrl(nextBaseUrl);
+  }
+  if (patch.modelContextWindows !== undefined) {
+    provider.modelContextWindows = normalizeModelContextWindows(
+      patch.modelContextWindows,
+      provider.modelCatalog ?? [],
+    );
+  } else {
+    provider.modelContextWindows = normalizeModelContextWindows(
+      provider.modelContextWindows,
+      provider.modelCatalog ?? [],
+    );
   }
   if (patch.supportsVision !== undefined) {
     provider.supportsVision = patch.supportsVision === true;
@@ -620,14 +734,8 @@ export async function updateCodexModelProvider(
       patch.boundOauthAccountId === null
         ? undefined
         : normalizeBoundOauthAccountId(patch.boundOauthAccountId);
-    if (!provider.boundOauthAccountId) {
-      provider.boundOauthUseLocalGateway = false;
-    }
   }
-  if (patch.boundOauthUseLocalGateway !== undefined) {
-    provider.boundOauthUseLocalGateway =
-      Boolean(provider.boundOauthAccountId) && patch.boundOauthUseLocalGateway === true;
-  }
+  enforceDeepSeekProvider(provider);
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((apiKey) => ({ ...apiKey })) };
@@ -660,6 +768,58 @@ export async function removeApiKeyFromCodexModelProvider(
   }
   provider.apiKeys = nextApiKeys;
   provider.updatedAt = Date.now();
+  await writeProviders(providers);
+  return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
+}
+
+/** Explicit rename for an existing provider API key (#1510). Does not rewrite key material. */
+export async function renameApiKeyOnCodexModelProvider(
+  providerId: string,
+  apiKeyId: string,
+  name: string,
+): Promise<CodexModelProvider> {
+  const providers = await ensureProvidersLoaded();
+  const provider = providers.find((item) => item.id === providerId);
+  if (!provider) throw new Error('PROVIDER_NOT_FOUND');
+  const apiKey = provider.apiKeys.find((item) => item.id === apiKeyId);
+  if (!apiKey) throw new Error('API_KEY_NOT_FOUND');
+
+  const now = Date.now();
+  apiKey.name = sanitizeName(name);
+  apiKey.updatedAt = now;
+  provider.updatedAt = now;
+  await writeProviders(providers);
+  return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
+}
+
+/** Replace the secret for an existing provider API key without changing its id. */
+export async function updateApiKeyOnCodexModelProvider(
+  providerId: string,
+  apiKeyId: string,
+  apiKey: string,
+  name?: string,
+): Promise<CodexModelProvider> {
+  const normalizedApiKey = sanitizeApiKey(apiKey);
+  if (!normalizedApiKey) throw new Error("API_KEY_REQUIRED");
+
+  const providers = await ensureProvidersLoaded();
+  const provider = providers.find((item) => item.id === providerId);
+  if (!provider) throw new Error("PROVIDER_NOT_FOUND");
+  const existing = provider.apiKeys.find((item) => item.id === apiKeyId);
+  if (!existing) throw new Error("API_KEY_NOT_FOUND");
+
+  const duplicate = provider.apiKeys.some(
+    (item) => item.id !== apiKeyId && sanitizeApiKey(item.apiKey) === normalizedApiKey,
+  );
+  if (duplicate) throw new Error("API_KEY_EXISTS");
+
+  const now = Date.now();
+  existing.apiKey = normalizedApiKey;
+  if (name !== undefined) {
+    existing.name = sanitizeName(name);
+  }
+  existing.updatedAt = now;
+  provider.updatedAt = now;
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
 }
@@ -721,7 +881,8 @@ export interface CodexModelProviderChatTestProgressPayload {
     | 'batch_started'
     | 'provider_started'
     | 'provider_completed'
-    | 'batch_completed';
+    | 'batch_completed'
+    | 'batch_cancelled';
   currentProviderId?: string | null;
   item?: CodexModelProviderChatTestRecord | null;
 }
@@ -738,6 +899,10 @@ export async function testCodexModelProviderChatBatch(input: {
     model: input.model ?? null,
     runId: input.runId ?? null,
   });
+}
+
+export async function cancelCodexModelProviderChatTest(runId: string): Promise<boolean> {
+  return await invoke('codex_cancel_model_provider_chat_test', { runId });
 }
 
 export async function queryCodexModelProviderUsage(input: {
@@ -800,7 +965,6 @@ export async function upsertCodexModelProviderFromCredential(
       supportsWebsockets: normalizeSupportsWebsockets(input.supportsWebsockets, wireApi, apiBaseUrl),
       enableModePreference: 'auto',
       boundOauthAccountId: undefined,
-      boundOauthUseLocalGateway: false,
       apiKeys: [],
       createdAt: now,
       updatedAt: now,
@@ -815,12 +979,31 @@ export async function upsertCodexModelProviderFromCredential(
     provider.sourceTag = sanitizeName(input.sourceTag ?? '') || undefined;
   }
 
-  ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
+  const moveResult = moveCodexProviderApiKey(
+    providers,
+    input.previousProviderId,
+    provider.id,
+    apiKey,
+  );
+  if (moveResult === 'not_moved' || moveResult === 'name_conflict') {
+    ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
+  }
   provider.baseUrl = apiBaseUrl;
   provider.modelCatalog =
     normalizeModelCatalog(input.modelCatalog) ??
     provider.modelCatalog ??
     presetModelCatalogForBaseUrl(apiBaseUrl);
+  if (input.modelContextWindows !== undefined) {
+    provider.modelContextWindows = normalizeModelContextWindows(
+      input.modelContextWindows,
+      provider.modelCatalog ?? [],
+    );
+  } else {
+    provider.modelContextWindows = normalizeModelContextWindows(
+      provider.modelContextWindows,
+      provider.modelCatalog ?? [],
+    );
+  }
   if (input.supportsVision !== undefined) {
     provider.supportsVision = input.supportsVision === true;
   }
@@ -849,6 +1032,7 @@ export async function upsertCodexModelProviderFromCredential(
   if (input.integrationType !== undefined) {
     provider.integrationType = normalizeIntegrationType(input.integrationType);
   }
+  enforceDeepSeekProvider(provider);
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };

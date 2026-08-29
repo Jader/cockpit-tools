@@ -1,6 +1,6 @@
 cask "cockpit-tools" do
-  version "1.3.0"
-  sha256 "9112b929df14c6e50b2717021c9bc225460ae9f67a2a84c58e3e45b7de9d2f0f"
+  version "1.3.34"
+  sha256 "874c3dc301d1a16d59c692904d5cb5a2ac2741fbe3846d1adf6cdc6997698e67"
 
   url "https://github.com/Jader/cockpit-tools/releases/download/v#{version}/Cockpit.Tools_#{version}_universal.dmg",
       verified: "github.com/Jader/cockpit-tools/"

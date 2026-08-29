@@ -10,6 +10,9 @@ import type {
   CodexSessionRecord,
   CodexSessionSearchOptions,
   CodexSessionTokenStats,
+  CodexSessionUsageQuery,
+  CodexSessionUsageReport,
+  CodexSessionUsageSyncResult,
   CodexSessionTrashSummary,
   CodexTrashedSessionRecord,
   CodexSessionRestoreSummary,
@@ -19,6 +22,7 @@ import type {
   CodexSessionImportPreview,
   CodexSessionImportSummary,
   CodexQuickConfig,
+  CodexExperimentalModelDefinition,
   CodexAppSpeed,
 } from "../types/codex";
 import type { InstanceLaunchMode, InstanceProfile } from "../types/instance";
@@ -28,19 +32,38 @@ const service = createPlatformInstanceService("codex");
 export const getInstanceDefaults = service.getInstanceDefaults;
 export const listInstances = service.listInstances;
 export const deleteInstance = service.deleteInstance;
-export async function startInstance(instanceId: string): Promise<InstanceProfile> {
+export async function startInstance(
+  instanceId: string,
+  options?: {
+    transferConflictingAccount?: boolean;
+    skipFailedStep?: string;
+  },
+): Promise<InstanceProfile> {
   const startedAt = performance.now();
   console.info("[Codex Start][Service] invoke codex_start_instance started", {
     instanceId,
   });
   try {
-    return await service.startInstance(instanceId);
-  } finally {
-    console.info("[Codex Start][Service] invoke codex_start_instance finished", {
+    return await invoke<InstanceProfile>("codex_start_instance", {
       instanceId,
-      elapsedMs: Math.round(performance.now() - startedAt),
+      transferConflictingAccount:
+        options?.transferConflictingAccount === true ? true : null,
+      skipFailedStep: options?.skipFailedStep ?? null,
     });
+  } finally {
+    console.info(
+      "[Codex Start][Service] invoke codex_start_instance finished",
+      {
+        instanceId,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      },
+    );
   }
+}
+
+/** 请求后端停止目标实例的启动事务；弹框是否关闭由调用方决定。 */
+export async function cancelInstanceStart(instanceId: string): Promise<void> {
+  await invoke("codex_cancel_instance_start", { instanceId });
 }
 export const stopInstance = service.stopInstance;
 export const closeAllInstances = service.closeAllInstances;
@@ -80,6 +103,7 @@ export async function updateInstance(payload: {
   launchMode?: InstanceLaunchMode;
   appSpeed?: CodexAppSpeed;
   autoSyncThreads?: boolean;
+  deferBindAccountApplication?: boolean;
 }): Promise<InstanceProfile> {
   const body: Record<string, unknown> = {
     instanceId: payload.instanceId,
@@ -108,6 +132,9 @@ export async function updateInstance(payload: {
   if (payload.autoSyncThreads !== undefined) {
     body.autoSyncThreads = payload.autoSyncThreads;
   }
+  if (payload.deferBindAccountApplication !== undefined) {
+    body.deferBindAccountApplication = payload.deferBindAccountApplication;
+  }
   return await invoke("codex_update_instance", body);
 }
 
@@ -123,11 +150,18 @@ export async function saveCodexInstanceQuickConfig(
   instanceId: string,
   modelContextWindow?: number,
   autoCompactTokenLimit?: number,
+  experimentalModelCatalogEnabled?: boolean,
+  experimentalModelCatalogModels?: CodexExperimentalModelDefinition[],
+  experimentalModelCatalogDefaultModelId?: string | null,
 ): Promise<CodexQuickConfig> {
   return await invoke("codex_save_instance_quick_config", {
     instanceId,
     modelContextWindow: modelContextWindow ?? null,
     autoCompactTokenLimit: autoCompactTokenLimit ?? null,
+    experimentalModelCatalogEnabled: experimentalModelCatalogEnabled ?? null,
+    experimentalModelCatalogModels: experimentalModelCatalogModels ?? null,
+    experimentalModelCatalogDefaultModelId:
+      experimentalModelCatalogDefaultModelId ?? null,
   });
 }
 
@@ -143,12 +177,41 @@ export interface CodexInstanceLaunchInfo {
   instanceId: string;
   userDataDir: string;
   launchCommand: string;
+  terminalCommand: string;
+  terminal: string;
+}
+
+export interface CodexInstanceLaunchPreviewInfo {
+  userDataDir: string;
+  launchCommand: string;
+  terminalCommand: string;
+  terminal: string;
+}
+
+export async function previewCodexInstanceLaunchCommand(payload: {
+  userDataDir: string;
+  workingDir?: string | null;
+  extraArgs?: string;
+  terminal?: string;
+  launchCommand?: string | null;
+}): Promise<CodexInstanceLaunchPreviewInfo> {
+  return await invoke("codex_preview_instance_launch_command", {
+    userDataDir: payload.userDataDir,
+    workingDir: payload.workingDir ?? null,
+    extraArgs: payload.extraArgs ?? "",
+    terminal: payload.terminal ?? null,
+    launchCommand: payload.launchCommand ?? null,
+  });
 }
 
 export async function getCodexInstanceLaunchCommand(
   instanceId: string,
+  terminal?: string,
 ): Promise<CodexInstanceLaunchInfo> {
-  return await invoke("codex_get_instance_launch_command", { instanceId });
+  return await invoke("codex_get_instance_launch_command", {
+    instanceId,
+    terminal: terminal ?? null,
+  });
 }
 
 export async function executeCodexInstanceLaunchCommand(
@@ -190,23 +253,17 @@ export async function repairSessionVisibilityAcrossInstances(
   });
 }
 
-export async function listSessionVisibilityRepairInstances(): Promise<
-  CodexSessionVisibilityRepairInstanceList
-> {
+export async function listSessionVisibilityRepairInstances(): Promise<CodexSessionVisibilityRepairInstanceList> {
   return await invoke("codex_list_session_visibility_repair_instances");
 }
 
-export async function listSessionVisibilityRepairProviders(): Promise<
-  CodexSessionVisibilityRepairProviderList
-> {
+export async function listSessionVisibilityRepairProviders(): Promise<CodexSessionVisibilityRepairProviderList> {
   return await invoke("codex_list_session_visibility_repair_providers");
 }
 
 export async function listSessionsAcrossInstances(
   options: CodexSessionSearchOptions = {},
-): Promise<
-  CodexSessionRecord[]
-> {
+): Promise<CodexSessionRecord[]> {
   return await invoke("codex_list_sessions_across_instances", {
     titleQuery: options.titleQuery?.trim() || null,
     contentQuery: options.contentQuery?.trim() || null,
@@ -218,6 +275,21 @@ export async function getSessionTokenStatsAcrossInstances(
 ): Promise<CodexSessionTokenStats[]> {
   return await invoke("codex_get_session_token_stats_across_instances", {
     sessionIds,
+  });
+}
+
+export async function querySessionUsage(
+  query: CodexSessionUsageQuery = {},
+): Promise<CodexSessionUsageReport> {
+  return await invoke("codex_query_session_usage", { query });
+}
+
+export async function syncSessionUsage(
+  options: { rebuild?: boolean; query?: CodexSessionUsageQuery } = {},
+): Promise<CodexSessionUsageSyncResult> {
+  return await invoke("codex_sync_session_usage", {
+    rebuild: options.rebuild ?? false,
+    query: options.query ?? {},
   });
 }
 
@@ -299,8 +371,23 @@ export async function importSessions(
   });
 }
 
-export async function openSessionLocation(sessionId: string): Promise<void> {
+export async function openSessionLocation(
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> {
   return await invoke("codex_open_session_location", {
+    instanceId: instanceId ?? null,
+    sessionId,
+  });
+}
+
+/** Open rollout JSONL with the OS default app (#1510). */
+export async function openSessionRollout(
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> {
+  return await invoke("codex_open_session_rollout", {
+    instanceId: instanceId ?? null,
     sessionId,
   });
 }

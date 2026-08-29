@@ -10,6 +10,8 @@ const CODEBUDDY_API_PREFIX: &str = "/v2/plugin";
 const CODEBUDDY_PLATFORM: &str = "ide";
 const OAUTH_TIMEOUT_SECONDS: u64 = 600;
 const OAUTH_POLL_INTERVAL_MS: u64 = 1500;
+/// 企业版套餐代码（本地标识，用于前端识别企业用量资源）
+pub const ENTERPRISE_PACKAGE_CODE: &str = "TCACA_code_enterprise";
 
 #[derive(Clone)]
 struct PendingOAuthState {
@@ -659,6 +661,136 @@ pub async fn fetch_user_resource_with_access_token(
     Ok(body)
 }
 
+/// 企业版用户用量（网页端 /profile/usage 实际使用的接口）
+///
+/// 网页端企业用量走 `POST /billing/meter/get-enterprise-user-usage`，
+/// 企业 ID 通过请求头 `x-enterprise-id` 传递，body 为空。
+/// 而 `/v2/billing/meter/get-user-resource` 对企业成员账号返回空 Accounts。
+pub async fn fetch_enterprise_user_usage(
+    access_token: &str,
+    enterprise_id: &str,
+) -> Result<Value, String> {
+    let client = build_client()?;
+    let url = format!(
+        "{}/billing/meter/get-enterprise-user-usage",
+        CODEBUDDY_API_ENDPOINT
+    );
+
+    let req = client
+        .post(&url)
+        .header("Accept", "application/json, text/plain, */*")
+        .header("Accept-Language", "zh-CN,zh;q=0.9")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .header("X-Enterprise-Id", enterprise_id)
+        .header("X-Tenant-Id", enterprise_id);
+
+    let resp = req
+        .json(&json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("请求 enterprise user usage 失败: {}", e))?;
+
+    let status_code = resp.status();
+    let body: Value = resp.json().await.map_err(|e| {
+        format!(
+            "解析 enterprise user usage 响应失败: {} (http={})",
+            e,
+            status_code.as_u16()
+        )
+    })?;
+
+    if !status_code.is_success() {
+        let message = body
+            .get("message")
+            .or_else(|| body.get("msg"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!(
+            "请求 enterprise user usage 失败 (http={}): {}",
+            status_code.as_u16(),
+            message
+        ));
+    }
+
+    if let Some(code) = body.get("code").and_then(|v| v.as_i64()) {
+        if code != 0 && code != 200 {
+            let message = body
+                .get("message")
+                .or_else(|| body.get("msg"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            return Err(format!(
+                "请求 enterprise user usage 失败 (code={}): {}",
+                code, message
+            ));
+        }
+    }
+
+    Ok(body)
+}
+
+/// 将企业用量响应包装成前端可识别的 get-user-resource 结构
+///
+/// 网页端接口返回 `{credit, limitNum, cycleStartTime, cycleEndTime, cycleResetTime}`，
+/// 前端通过 `usage_raw.data.Response.Data.Accounts` 解析配额，
+/// 因此构造一个企业版资源账号，字段与 get-user-resource 对齐。
+pub fn wrap_enterprise_usage_as_resource(usage_body: &Value) -> Value {
+    let data = usage_body.get("data").cloned().unwrap_or_else(|| json!({}));
+    // credit 为周期内已使用积分，剩余 = limitNum - credit
+    let credit = data.get("credit").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let limit_num = data.get("limitNum").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let remain = (limit_num - credit).max(0.0);
+    let cycle_start_time = data
+        .get("cycleStartTime")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let cycle_end_time = data
+        .get("cycleEndTime")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let cycle_reset_time = data
+        .get("cycleResetTime")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let account = json!({
+        "PackageCode": ENTERPRISE_PACKAGE_CODE,
+        "PackageName": "企业版",
+        "CycleCapacitySizePrecise": limit_num.to_string(),
+        "CycleCapacityRemainPrecise": remain.to_string(),
+        "CycleCapacityUsedPrecise": credit.to_string(),
+        "CycleCapacitySize": limit_num,
+        "CycleCapacityRemain": remain,
+        "CycleCapacityUsed": credit,
+        "CapacitySize": limit_num,
+        "CapacityRemain": remain,
+        "CapacityUsed": credit,
+        "CapacityUnit": "credits",
+        "CycleStartTime": cycle_start_time,
+        "CycleEndTime": cycle_end_time,
+        "CycleResetTime": cycle_reset_time,
+        "Status": 0
+    });
+
+    json!({
+        "code": 0,
+        "msg": "OK",
+        "data": {
+            "Response": {
+                "Data": {
+                    "Accounts": [account],
+                    "TotalCount": 1,
+                    "TotalDosage": credit
+                }
+            }
+        }
+    })
+}
+
 async fn fetch_user_resource_with_access_token_default(
     access_token: &str,
     uid: Option<&str>,
@@ -773,8 +905,37 @@ async fn refresh_payload_for_account_inner(
     .await
     {
         Ok(payload) => {
-            logger::log_info("[CodeBuddy][IDE Token] 刷新 user_resource 成功");
-            Some(payload)
+            // 企业账号时 get-user-resource 可能返回空 Accounts，
+            // 改用网页端真实的企业用量接口兜底
+            if let Some(eid) = resolved_enterprise_id.as_deref() {
+                let accounts_empty = payload
+                    .pointer("/data/Response/Data/Accounts")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.is_empty())
+                    .unwrap_or(true);
+                if accounts_empty {
+                    match fetch_enterprise_user_usage(new_access_token.as_str(), eid).await {
+                        Ok(enterprise_body) => {
+                            let wrapped = wrap_enterprise_usage_as_resource(&enterprise_body);
+                            logger::log_info(
+                                "[CodeBuddy][IDE Token] 企业账号 user_resource 为空，已使用企业用量接口兜底",
+                            );
+                            Some(wrapped)
+                        }
+                        Err(enterprise_err) => {
+                            logger::log_warn(&format!(
+                                "[CodeBuddy][IDE Token] 企业用量接口兜底失败: {}",
+                                enterprise_err
+                            ));
+                            Some(payload)
+                        }
+                    }
+                } else {
+                    Some(payload)
+                }
+            } else {
+                Some(payload)
+            }
         }
         Err(err) => {
             logger::log_warn(&format!(
@@ -1047,22 +1208,52 @@ pub async fn build_payload_from_token(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct CheckinStatusResponse {
+    // 官方响应可能是 snake_case 或 camelCase，两种都认。
+    #[serde(default, alias = "todayCheckedIn")]
     pub today_checked_in: bool,
+    // 缺省按 true：与「有 data 即活动可用」一致；显式 false 才视为关闭。
+    // （serde 对 bool 的 default 是 false，会导致缺字段时被误判 inactive）
+    #[serde(default = "default_checkin_active_true", alias = "Active")]
     pub active: bool,
+    #[serde(default, alias = "streakDays")]
     pub streak_days: i64,
-    #[serde(default)]
+    #[serde(default, alias = "dailyCredit")]
     pub daily_credit: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "todayCredit",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub today_credit: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "nextStreakDay",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub next_streak_day: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "isStreakDay",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub is_streak_day: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "checkinDates",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub checkin_dates: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "streakBonusDays",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub streak_bonus_days: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "streakBonusCredit",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub streak_bonus_credit: Option<i64>,
 }
 
@@ -1084,21 +1275,66 @@ pub struct CheckinResponse {
     pub next_checkin_in: Option<i64>,
 }
 
+fn default_checkin_active_true() -> bool {
+    true
+}
+
 // 签到 API 函数
+// 官方 WorkBuddy CLI/Auth 使用 checkin-activity-status（Buddy 加油站）；
+// 旧 BackendProvider 注释为 checkin-status。优先 activity 接口，失败再回退。
 pub async fn get_checkin_status(
     access_token: &str,
     uid: Option<&str>,
     enterprise_id: Option<&str>,
     domain: Option<&str>,
 ) -> Result<CheckinStatusResponse, String> {
-    let client = build_client()?;
-    let url = format!("{}/v2/billing/meter/checkin-status", CODEBUDDY_API_ENDPOINT);
+    match fetch_checkin_status_from(
+        "/v2/billing/meter/checkin-activity-status",
+        access_token,
+        uid,
+        enterprise_id,
+        domain,
+    )
+    .await
+    {
+        Ok(status) => Ok(status),
+        Err(activity_err) => {
+            match fetch_checkin_status_from(
+                "/v2/billing/meter/checkin-status",
+                access_token,
+                uid,
+                enterprise_id,
+                domain,
+            )
+            .await
+            {
+                Ok(status) => Ok(status),
+                Err(legacy_err) => Err(format!(
+                    "查询签到状态失败: activity=({}) legacy=({})",
+                    activity_err, legacy_err
+                )),
+            }
+        }
+    }
+}
 
+async fn fetch_checkin_status_from(
+    path: &str,
+    access_token: &str,
+    uid: Option<&str>,
+    enterprise_id: Option<&str>,
+    domain: Option<&str>,
+) -> Result<CheckinStatusResponse, String> {
+    let client = build_client()?;
+    let url = format!("{}{}", CODEBUDDY_API_ENDPOINT, path);
+
+    // 与官方 buildHeaders(session) 对齐
     let mut req = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json");
+        .header("Content-Type", "application/json")
+        .json(&json!({}));
 
     if let Some(u) = uid {
         req = req.header("X-User-Id", u);
@@ -1114,13 +1350,13 @@ pub async fn get_checkin_status(
     let resp = req
         .send()
         .await
-        .map_err(|e| format!("请求 checkin-status 失败: {}", e))?;
+        .map_err(|e| format!("请求 {} 失败: {}", path, e))?;
 
     let status_code = resp.status();
     let body: Value = resp
         .json()
         .await
-        .map_err(|e| format!("解析 checkin-status 响应失败: {}", e))?;
+        .map_err(|e| format!("解析 {} 响应失败: {}", path, e))?;
 
     if !status_code.is_success() {
         let message = body
@@ -1129,33 +1365,111 @@ pub async fn get_checkin_status(
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
         return Err(format!(
-            "请求 checkin-status 失败 (http={}): {}",
+            "请求 {} 失败 (http={}): {}",
+            path,
             status_code.as_u16(),
             message
         ));
     }
 
+    // 与官方 WorkBuddy 一致：仅 code === 0 视为成功
     let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 && code != 200 {
+    if code != 0 {
         let message = body
             .get("message")
             .or_else(|| body.get("msg"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
-        return Err(format!(
-            "请求 checkin-status 失败 (code={}): {}",
-            code, message
-        ));
+        return Err(format!("请求 {} 失败 (code={}): {}", path, code, message));
     }
 
     let data = body
         .get("data")
-        .ok_or_else(|| "checkin-status 响应缺少 data 字段".to_string())?;
+        .ok_or_else(|| format!("{} 响应缺少 data 字段", path))?;
 
-    let status: CheckinStatusResponse = serde_json::from_value(data.clone())
-        .map_err(|e| format!("解析 checkin-status data 失败: {}", e))?;
+    let status =
+        parse_checkin_status_data(data).map_err(|e| format!("解析 {} data 失败: {}", path, e))?;
 
     Ok(status)
+}
+
+fn json_bool(value: &Value, snake: &str, camel: &str) -> Option<bool> {
+    let raw = value.get(snake).or_else(|| value.get(camel))?;
+    if let Some(b) = raw.as_bool() {
+        return Some(b);
+    }
+    if let Some(n) = raw.as_i64() {
+        return Some(n != 0);
+    }
+    if let Some(s) = raw.as_str() {
+        let lower = s.trim().to_ascii_lowercase();
+        if lower == "true" || lower == "1" {
+            return Some(true);
+        }
+        if lower == "false" || lower == "0" {
+            return Some(false);
+        }
+    }
+    None
+}
+
+fn json_i64(value: &Value, snake: &str, camel: &str) -> Option<i64> {
+    value
+        .get(snake)
+        .or_else(|| value.get(camel))
+        .and_then(|v| v.as_i64())
+}
+
+fn parse_checkin_status_data(data: &Value) -> Result<CheckinStatusResponse, String> {
+    // 先宽松读 bool（兼容 0/1），再走 serde，避免 active 缺省为 false
+    let today_checked_in = json_bool(data, "today_checked_in", "todayCheckedIn").unwrap_or(false);
+    let active = json_bool(data, "active", "Active").unwrap_or(true);
+
+    if let Ok(mut status) = serde_json::from_value::<CheckinStatusResponse>(data.clone()) {
+        // 覆盖可能被 serde default=false 误伤的 active
+        if data.get("active").is_none() && data.get("Active").is_none() {
+            status.active = true;
+        } else if let Some(a) = json_bool(data, "active", "Active") {
+            status.active = a;
+        }
+        if let Some(t) = json_bool(data, "today_checked_in", "todayCheckedIn") {
+            status.today_checked_in = t;
+        }
+        return Ok(status);
+    }
+
+    // 宽松解析：兼容字段命名差异，避免整段失败后前端仍显示「未签到」。
+    let streak_days = json_i64(data, "streak_days", "streakDays").unwrap_or(0);
+    let daily_credit = json_i64(data, "daily_credit", "dailyCredit").unwrap_or(0);
+    let today_credit = json_i64(data, "today_credit", "todayCredit");
+    let next_streak_day = json_i64(data, "next_streak_day", "nextStreakDay");
+    let is_streak_day = json_bool(data, "is_streak_day", "isStreakDay");
+    let streak_bonus_days = json_i64(data, "streak_bonus_days", "streakBonusDays");
+    let streak_bonus_credit = json_i64(data, "streak_bonus_credit", "streakBonusCredit");
+    let checkin_dates = data
+        .get("checkin_dates")
+        .or_else(|| data.get("checkinDates"))
+        .and_then(|v| {
+            v.as_array().map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+        });
+
+    Ok(CheckinStatusResponse {
+        today_checked_in,
+        active,
+        streak_days,
+        daily_credit,
+        today_credit,
+        next_streak_day,
+        is_streak_day,
+        checkin_dates,
+        streak_bonus_days,
+        streak_bonus_credit,
+    })
 }
 
 pub async fn perform_checkin(
@@ -1217,8 +1531,9 @@ pub async fn perform_checkin(
         .unwrap_or("unknown error")
         .to_string();
 
-    // code != 0 时，API 返回业务错误（如已签到），包装为 success=false 返回给前端展示
-    if code != 0 && code != 200 {
+    // 与官方 WorkBuddy 一致：仅 code === 0 视为成功；
+    // code != 0 时为业务错误（如已签到），包装为 success=false 返回给前端展示
+    if code != 0 {
         return Ok(CheckinResponse {
             success: false,
             message: Some(api_msg),

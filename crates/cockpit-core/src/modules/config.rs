@@ -77,6 +77,9 @@ pub struct UserConfig {
     /// 应用主题
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// 是否减少界面动画
+    #[serde(default = "default_reduced_motion_enabled")]
+    pub reduced_motion_enabled: bool,
     /// 界面缩放比例
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f64,
@@ -89,6 +92,9 @@ pub struct UserConfig {
     /// Codex 切号时是否同步覆盖 WSL 配置 (Windows Only)
     #[serde(default = "default_codex_sync_wsl")]
     pub codex_sync_wsl: bool,
+    /// 是否启用 Codex 客户端中的 API 服务额度显示注入
+    #[serde(default = "default_codex_app_ui_injection_enabled")]
+    pub codex_app_ui_injection_enabled: bool,
     /// Codex WSL 配置目录 (Windows Only)
     #[serde(default = "default_codex_wsl_config_dir")]
     pub codex_wsl_config_dir: String,
@@ -107,12 +113,6 @@ pub struct UserConfig {
     /// Cursor 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_cursor_auto_refresh")]
     pub cursor_auto_refresh_minutes: i32,
-    /// Gemini 自动刷新间隔（分钟），-1 表示禁用
-    #[serde(default = "default_gemini_auto_refresh")]
-    pub gemini_auto_refresh_minutes: i32,
-    /// Gemini 切号时是否同步覆盖 WSL 配置 (Windows Only)
-    #[serde(default = "default_gemini_sync_wsl")]
-    pub gemini_sync_wsl: bool,
     /// CodeBuddy 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_codebuddy_auto_refresh")]
     pub codebuddy_auto_refresh_minutes: i32,
@@ -215,6 +215,9 @@ pub struct UserConfig {
     /// CodeBuddy 启动路径（为空则使用默认路径）
     #[serde(default = "default_codebuddy_app_path")]
     pub codebuddy_app_path: String,
+    /// 切换 CodeBuddy 账号时是否在本机账号间合并本地会话
+    #[serde(default = "default_codebuddy_share_sessions_on_switch")]
+    pub codebuddy_share_sessions_on_switch: bool,
     /// CodeBuddy CN 启动路径（为空则使用默认路径）
     #[serde(default = "default_codebuddy_cn_app_path")]
     pub codebuddy_cn_app_path: String,
@@ -242,6 +245,9 @@ pub struct UserConfig {
     /// WorkBuddy 启动路径（为空则使用默认路径）
     #[serde(default = "default_workbuddy_app_path")]
     pub workbuddy_app_path: String,
+    /// 切换 WorkBuddy 账号时是否在本机账号间合并本地会话
+    #[serde(default = "default_workbuddy_share_sessions_on_switch")]
+    pub workbuddy_share_sessions_on_switch: bool,
     /// 切换 Codex 时是否自动重启 OpenCode
     #[serde(default = "default_opencode_sync_on_switch")]
     pub opencode_sync_on_switch: bool,
@@ -254,6 +260,12 @@ pub struct UserConfig {
     /// 切换 GitHub Copilot 时是否覆盖 OpenCode 登录信息
     #[serde(default = "default_ghcp_opencode_auth_overwrite_on_switch")]
     pub ghcp_opencode_auth_overwrite_on_switch: bool,
+    /// 切换 Grok 时是否自动重启 OpenCode
+    #[serde(default = "default_grok_opencode_sync_on_switch")]
+    pub grok_opencode_sync_on_switch: bool,
+    /// 切换 Grok 时是否覆盖 OpenCode 登录信息
+    #[serde(default = "default_grok_opencode_auth_overwrite_on_switch")]
+    pub grok_opencode_auth_overwrite_on_switch: bool,
     /// 切换 GitHub Copilot 时是否自动启动 GitHub Copilot
     #[serde(default = "default_ghcp_launch_on_switch")]
     pub ghcp_launch_on_switch: bool,
@@ -347,12 +359,6 @@ pub struct UserConfig {
     /// Cursor 配额预警阈值（百分比）
     #[serde(default = "default_cursor_quota_alert_threshold")]
     pub cursor_quota_alert_threshold: i32,
-    /// 是否启用 Gemini 配额预警通知
-    #[serde(default = "default_gemini_quota_alert_enabled")]
-    pub gemini_quota_alert_enabled: bool,
-    /// Gemini 配额预警阈值（百分比）
-    #[serde(default = "default_gemini_quota_alert_threshold")]
-    pub gemini_quota_alert_threshold: i32,
     /// 是否启用 CodeBuddy 配额预警通知
     #[serde(default = "default_codebuddy_quota_alert_enabled")]
     pub codebuddy_quota_alert_enabled: bool,
@@ -467,6 +473,9 @@ fn default_default_terminal() -> String {
 fn default_theme() -> String {
     "system".to_string()
 }
+fn default_reduced_motion_enabled() -> bool {
+    false
+}
 fn default_ui_scale() -> f64 {
     1.0
 }
@@ -478,6 +487,9 @@ fn default_codex_auto_refresh() -> i32 {
 } // 默认 10 分钟
 fn default_codex_sync_wsl() -> bool {
     false
+}
+fn default_codex_app_ui_injection_enabled() -> bool {
+    true
 }
 fn default_codex_wsl_config_dir() -> String {
     String::new()
@@ -497,12 +509,6 @@ fn default_kiro_auto_refresh() -> i32 {
 fn default_cursor_auto_refresh() -> i32 {
     10
 } // 默认 10 分钟
-fn default_gemini_auto_refresh() -> i32 {
-    10
-}
-fn default_gemini_sync_wsl() -> bool {
-    true
-}
 fn default_codebuddy_auto_refresh() -> i32 {
     10
 }
@@ -606,6 +612,9 @@ fn default_cursor_app_path() -> String {
 fn default_codebuddy_app_path() -> String {
     String::new()
 }
+fn default_codebuddy_share_sessions_on_switch() -> bool {
+    false
+}
 fn default_codebuddy_cn_app_path() -> String {
     String::new()
 }
@@ -621,6 +630,9 @@ fn default_trae_app_scan_roots() -> String {
 fn default_workbuddy_app_path() -> String {
     String::new()
 }
+fn default_workbuddy_share_sessions_on_switch() -> bool {
+    false
+}
 fn default_opencode_sync_on_switch() -> bool {
     false
 }
@@ -631,6 +643,12 @@ fn default_ghcp_opencode_sync_on_switch() -> bool {
     false
 }
 fn default_ghcp_opencode_auth_overwrite_on_switch() -> bool {
+    false
+}
+fn default_grok_opencode_sync_on_switch() -> bool {
+    false
+}
+fn default_grok_opencode_auth_overwrite_on_switch() -> bool {
     false
 }
 fn default_ghcp_launch_on_switch() -> bool {
@@ -726,12 +744,6 @@ fn default_cursor_quota_alert_enabled() -> bool {
 fn default_cursor_quota_alert_threshold() -> i32 {
     20
 }
-fn default_gemini_quota_alert_enabled() -> bool {
-    false
-}
-fn default_gemini_quota_alert_threshold() -> i32 {
-    20
-}
 fn default_codebuddy_quota_alert_enabled() -> bool {
     false
 }
@@ -777,18 +789,18 @@ impl Default for UserConfig {
             language: default_language(),
             default_terminal: default_default_terminal(),
             theme: default_theme(),
+            reduced_motion_enabled: default_reduced_motion_enabled(),
             ui_scale: default_ui_scale(),
             auto_refresh_minutes: default_auto_refresh(),
             codex_auto_refresh_minutes: default_codex_auto_refresh(),
             codex_sync_wsl: default_codex_sync_wsl(),
+            codex_app_ui_injection_enabled: default_codex_app_ui_injection_enabled(),
             codex_wsl_config_dir: default_codex_wsl_config_dir(),
             zed_auto_refresh_minutes: default_zed_auto_refresh(),
             ghcp_auto_refresh_minutes: default_ghcp_auto_refresh(),
             windsurf_auto_refresh_minutes: default_windsurf_auto_refresh(),
             kiro_auto_refresh_minutes: default_kiro_auto_refresh(),
             cursor_auto_refresh_minutes: default_cursor_auto_refresh(),
-            gemini_auto_refresh_minutes: default_gemini_auto_refresh(),
-            gemini_sync_wsl: default_gemini_sync_wsl(),
             codebuddy_auto_refresh_minutes: default_codebuddy_auto_refresh(),
             codebuddy_cn_auto_refresh_minutes: default_codebuddy_cn_auto_refresh(),
             workbuddy_auto_refresh_minutes: default_workbuddy_auto_refresh(),
@@ -825,6 +837,7 @@ impl Default for UserConfig {
             kiro_app_path: default_kiro_app_path(),
             cursor_app_path: default_cursor_app_path(),
             codebuddy_app_path: default_codebuddy_app_path(),
+            codebuddy_share_sessions_on_switch: default_codebuddy_share_sessions_on_switch(),
             codebuddy_cn_app_path: default_codebuddy_cn_app_path(),
             qoder_app_path: default_qoder_app_path(),
             trae_app_path: default_trae_app_path(),
@@ -836,11 +849,15 @@ impl Default for UserConfig {
             trae_cn_app_scan_roots: default_trae_app_scan_roots(),
             trae_solo_cn_app_scan_roots: default_trae_app_scan_roots(),
             workbuddy_app_path: default_workbuddy_app_path(),
+            workbuddy_share_sessions_on_switch: default_workbuddy_share_sessions_on_switch(),
             opencode_sync_on_switch: default_opencode_sync_on_switch(),
             opencode_auth_overwrite_on_switch: default_opencode_auth_overwrite_on_switch(),
             ghcp_opencode_sync_on_switch: default_ghcp_opencode_sync_on_switch(),
             ghcp_opencode_auth_overwrite_on_switch: default_ghcp_opencode_auth_overwrite_on_switch(
             ),
+            grok_opencode_sync_on_switch: default_grok_opencode_sync_on_switch(),
+            grok_opencode_auth_overwrite_on_switch:
+                default_grok_opencode_auth_overwrite_on_switch(),
             ghcp_launch_on_switch: default_ghcp_launch_on_switch(),
             openclaw_auth_overwrite_on_switch: default_openclaw_auth_overwrite_on_switch(),
             codex_launch_on_switch: default_codex_launch_on_switch(),
@@ -874,8 +891,6 @@ impl Default for UserConfig {
             kiro_quota_alert_threshold: default_kiro_quota_alert_threshold(),
             cursor_quota_alert_enabled: default_cursor_quota_alert_enabled(),
             cursor_quota_alert_threshold: default_cursor_quota_alert_threshold(),
-            gemini_quota_alert_enabled: default_gemini_quota_alert_enabled(),
-            gemini_quota_alert_threshold: default_gemini_quota_alert_threshold(),
             codebuddy_quota_alert_enabled: default_codebuddy_quota_alert_enabled(),
             codebuddy_quota_alert_threshold: default_codebuddy_quota_alert_threshold(),
             codebuddy_cn_quota_alert_enabled: default_codebuddy_cn_quota_alert_enabled(),
@@ -1121,20 +1136,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_auto_refresh_minutes") {
-            let inherited_refresh = obj
-                .get("cursor_auto_refresh_minutes")
-                .or_else(|| obj.get("kiro_auto_refresh_minutes"))
-                .or_else(|| obj.get("windsurf_auto_refresh_minutes"))
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32)
-                .unwrap_or_else(default_gemini_auto_refresh);
-            obj.insert(
-                "gemini_auto_refresh_minutes".to_string(),
-                json!(inherited_refresh),
-            );
-        }
-
         if !obj.contains_key("codex_sync_wsl") {
             obj.insert(
                 "codex_sync_wsl".to_string(),
@@ -1149,17 +1150,9 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_sync_wsl") {
-            obj.insert(
-                "gemini_sync_wsl".to_string(),
-                json!(default_gemini_sync_wsl()),
-            );
-        }
-
         if !obj.contains_key("qoder_auto_refresh_minutes") {
             let inherited_refresh = obj
-                .get("gemini_auto_refresh_minutes")
-                .or_else(|| obj.get("cursor_auto_refresh_minutes"))
+                .get("cursor_auto_refresh_minutes")
                 .or_else(|| obj.get("kiro_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
@@ -1173,7 +1166,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("codebuddy_cn_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("codebuddy_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_codebuddy_cn_auto_refresh);
@@ -1187,7 +1179,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             let inherited_refresh = obj
                 .get("codebuddy_cn_auto_refresh_minutes")
                 .or_else(|| obj.get("codebuddy_auto_refresh_minutes"))
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_workbuddy_auto_refresh);
@@ -1200,7 +1191,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("trae_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("qoder_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_trae_auto_refresh);
@@ -1338,6 +1328,12 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "default_terminal".to_string(),
                 json!(default_default_terminal()),
+            );
+        }
+        if !obj.contains_key("reduced_motion_enabled") {
+            obj.insert(
+                "reduced_motion_enabled".to_string(),
+                json!(default_reduced_motion_enabled()),
             );
         }
         if !obj.contains_key("global_proxy_enabled") {
@@ -1515,18 +1511,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("cursor_quota_alert_threshold") {
             obj.insert(
                 "cursor_quota_alert_threshold".to_string(),
-                json!(legacy_threshold),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_enabled") {
-            obj.insert(
-                "gemini_quota_alert_enabled".to_string(),
-                json!(legacy_enabled),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_threshold") {
-            obj.insert(
-                "gemini_quota_alert_threshold".to_string(),
                 json!(legacy_threshold),
             );
         }
@@ -1868,6 +1852,22 @@ mod tests {
     fn openclaw_auth_overwrite_default_is_disabled() {
         let cfg = UserConfig::default();
         assert!(!cfg.openclaw_auth_overwrite_on_switch);
+    }
+
+    #[test]
+    fn codex_api_service_quota_display_defaults_to_enabled() {
+        let default_cfg = UserConfig::default();
+        assert!(default_cfg.codex_app_ui_injection_enabled);
+
+        let upgraded_cfg: UserConfig =
+            serde_json::from_value(serde_json::json!({})).expect("旧配置反序列化应成功");
+        assert!(upgraded_cfg.codex_app_ui_injection_enabled);
+
+        let disabled_cfg: UserConfig = serde_json::from_value(serde_json::json!({
+            "codex_app_ui_injection_enabled": false
+        }))
+        .expect("显式关闭配置反序列化应成功");
+        assert!(!disabled_cfg.codex_app_ui_injection_enabled);
     }
 
     #[test]

@@ -1,4 +1,7 @@
-use serde::Serialize;
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use base64::{engine::general_purpose, Engine as _};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
@@ -31,6 +34,59 @@ const PROFILE_ENV: &str = "COCKPIT_TOOLS_PROFILE";
 
 const ACCOUNTS_INDEX: &str = "accounts.json";
 const ACCOUNTS_DIR: &str = "accounts";
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EncryptedTokenEnvelope {
+    version: u32,
+    algorithm: String,
+    key_id: String,
+    nonce: String,
+    ciphertext: String,
+    encrypted_at: i64,
+}
+
+// 仅用于读取历史“只加密 token”格式；新写入统一使用 secure_account_storage 整文件加密。
+const LEGACY_TOKEN_KEY_FILE: &str = "account-token.key";
+const LEGACY_TOKEN_VERSION: u32 = 1;
+
+fn legacy_token_cipher() -> Result<Aes256Gcm, String> {
+    let path = get_data_dir()?.join(LEGACY_TOKEN_KEY_FILE);
+    let key = if path.exists() {
+        let raw = fs::read_to_string(&path).map_err(|e| format!("读取历史账号密钥失败: {}", e))?;
+        let bytes = general_purpose::STANDARD
+            .decode(raw.trim())
+            .map_err(|e| format!("解析历史账号密钥失败: {}", e))?;
+        if bytes.len() != 32 {
+            return Err("历史账号密钥长度无效".to_string());
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        key
+    } else {
+        return Err("历史账号密钥不存在".to_string());
+    };
+    Aes256Gcm::new_from_slice(&key).map_err(|e| format!("初始化历史账号加密失败: {}", e))
+}
+
+fn decrypt_legacy_token_envelope(envelope: &EncryptedTokenEnvelope) -> Result<TokenData, String> {
+    if envelope.version != LEGACY_TOKEN_VERSION {
+        return Err("历史账号 token 加密版本不受支持".to_string());
+    }
+    let cipher = legacy_token_cipher()?;
+    let nonce = general_purpose::STANDARD
+        .decode(envelope.nonce.trim())
+        .map_err(|e| format!("解析历史账号 nonce 失败: {}", e))?;
+    if nonce.len() != 12 {
+        return Err("历史账号 nonce 长度无效".to_string());
+    }
+    let ciphertext = general_purpose::STANDARD
+        .decode(envelope.ciphertext.trim())
+        .map_err(|e| format!("解析历史账号密文失败: {}", e))?;
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .map_err(|e| format!("解密历史账号 token 失败: {:?}", e))?;
+    serde_json::from_slice::<TokenData>(&plaintext)
+        .map_err(|e| format!("解析历史账号 token 明文失败: {}", e))
+}
 
 #[derive(Clone)]
 struct ListAccountsCacheEntry {
@@ -68,6 +124,73 @@ fn write_list_accounts_cache(accounts: &[Account]) {
         });
     }
 }
+
+fn serialize_account_for_storage(account: &Account) -> Result<String, String> {
+    crate::modules::secure_account_storage::serialize_account_file("antigravity", account)
+}
+
+fn deserialize_account_from_storage(
+    account_path: &PathBuf,
+    content: &str,
+) -> Result<Account, String> {
+    if let Ok((account, needs_rotation)) =
+        crate::modules::secure_account_storage::deserialize_account_file::<Account>(
+            account_path,
+            content,
+        )
+    {
+        if needs_rotation {
+            let account_for_rewrite = account.clone();
+            modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                "antigravity",
+                account_for_rewrite.id.clone(),
+                account_path.clone(),
+                content.as_bytes(),
+                move || serialize_account_for_storage(&account_for_rewrite),
+            );
+        }
+        return Ok(account);
+    }
+
+    // 兼容历史明文详情与仅 token 加密的详情；读取成功后后台迁移为整文件密文。
+    let mut value = serde_json::from_str::<serde_json::Value>(content)
+        .map_err(|e| format!("解析账号数据失败: {}", e))?;
+
+    if value.get("token").is_none() {
+        let encrypted = value
+            .get("token_encrypted")
+            .cloned()
+            .ok_or_else(|| "账号数据缺少 token".to_string())?;
+        let envelope = serde_json::from_value::<EncryptedTokenEnvelope>(encrypted)
+            .map_err(|e| format!("解析账号 token 密文失败: {}", e))?;
+        let token = decrypt_legacy_token_envelope(&envelope)?;
+        if let Some(object) = value.as_object_mut() {
+            object.insert(
+                "token".to_string(),
+                serde_json::to_value(token).map_err(|e| format!("还原账号 token 失败: {}", e))?,
+            );
+        }
+    }
+
+    if let Some(object) = value.as_object_mut() {
+        object.remove("token_encrypted");
+    }
+
+    let account =
+        serde_json::from_value::<Account>(value).map_err(|e| format!("解析账号数据失败: {}", e))?;
+
+    let account_for_rewrite = account.clone();
+    modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+        "antigravity",
+        account_for_rewrite.id.clone(),
+        account_path.clone(),
+        content.as_bytes(),
+        move || serialize_account_for_storage(&account_for_rewrite),
+    );
+
+    Ok(account)
+}
+
 /// 获取数据目录路径
 pub fn is_dev_profile() -> bool {
     std::env::var(PROFILE_ENV)
@@ -93,6 +216,26 @@ pub fn resolve_data_dir() -> Result<PathBuf, String> {
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {
+    // #816: tests can isolate storage via env without touching real user data.
+    // Prefer COCKPIT_TOOLS_TEST_DATA_DIR (community PR name); keep COCKPIT_TEST_DATA_DIR alias.
+    for key in [
+        "COCKPIT_TOOLS_TEST_DATA_DIR",
+        "COCKPIT_TEST_DATA_DIR",
+        "COCKPIT_TOOLS_DATA_DIR",
+    ] {
+        if let Ok(override_dir) = std::env::var(key) {
+            let override_dir = override_dir.trim();
+            if !override_dir.is_empty() {
+                let data_dir = PathBuf::from(override_dir);
+                if !data_dir.exists() {
+                    fs::create_dir_all(&data_dir)
+                        .map_err(|e| format!("创建测试数据目录失败: {}", e))?;
+                }
+                return Ok(data_dir);
+            }
+        }
+    }
+
     let data_dir = resolve_data_dir()?;
 
     if !data_dir.exists() {
@@ -252,8 +395,7 @@ pub fn load_account(account_id: &str) -> Result<Account, String> {
     let content =
         fs::read_to_string(&account_path).map_err(|e| format!("读取账号数据失败: {}", e))?;
 
-    crate::modules::atomic_write::parse_json_with_auto_restore::<Account>(&account_path, &content)
-        .map_err(|e| format!("解析账号数据失败: {}", e))
+    deserialize_account_from_storage(&account_path, &content)
 }
 
 /// 保存账号数据
@@ -261,8 +403,7 @@ pub fn save_account(account: &Account) -> Result<(), String> {
     let accounts_dir = get_accounts_dir()?;
     let account_path = accounts_dir.join(format!("{}.json", account.id));
 
-    let content =
-        serde_json::to_string_pretty(account).map_err(|e| format!("序列化账号数据失败: {}", e))?;
+    let content = serialize_account_for_storage(account)?;
 
     crate::modules::atomic_write::write_string_atomic(&account_path, &content)
         .map_err(|e| format!("保存账号数据失败: {}", e))?;
@@ -304,17 +445,72 @@ pub fn update_account_tags(account_id: &str, tags: Vec<String>) -> Result<Accoun
     Ok(account)
 }
 
-/// 更新账号备注
-pub fn update_account_notes(account_id: &str, notes: String) -> Result<Account, String> {
-    let mut account = load_account(account_id)?;
-    let trimmed = notes.trim().to_string();
-    account.notes = if trimmed.is_empty() {
+fn normalize_optional_note_value(value: String) -> Option<String> {
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
         None
     } else {
         Some(trimmed)
-    };
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AccountNoteUpdate {
+    pub note: Option<String>,
+    pub two_factor_secret: Option<String>,
+    pub account_password: Option<String>,
+    pub phone_number: Option<String>,
+    pub mail_url: Option<String>,
+    pub aux_email: Option<String>,
+}
+
+impl AccountNoteUpdate {
+    pub fn apply_to(self, account: &mut Account) {
+        if let Some(value) = self.note {
+            account.notes = normalize_optional_note_value(value);
+        }
+        if let Some(value) = self.two_factor_secret {
+            account.two_factor_secret = normalize_optional_note_value(value);
+        }
+        if let Some(value) = self.account_password {
+            account.account_password = normalize_optional_note_value(value);
+        }
+        if let Some(value) = self.phone_number {
+            account.phone_number = normalize_optional_note_value(value);
+        }
+        if let Some(value) = self.mail_url {
+            account.mail_url = normalize_optional_note_value(value);
+        }
+        if let Some(value) = self.aux_email {
+            account.aux_email = normalize_optional_note_value(value);
+        }
+    }
+}
+
+pub fn update_account_note(account_id: &str, update: AccountNoteUpdate) -> Result<Account, String> {
+    let mut account = load_account(account_id)?;
+    update.apply_to(&mut account);
     save_account(&account)?;
     Ok(account)
+}
+
+pub fn update_account_notes(account_id: &str, notes: String) -> Result<Account, String> {
+    update_account_note(
+        account_id,
+        AccountNoteUpdate {
+            note: Some(notes),
+            ..Default::default()
+        },
+    )
+}
+
+/// OAuth 完成后将授权前填写的备注组一次性写入刚保存的账号。
+pub fn apply_account_note_after_oauth(
+    account: &mut Account,
+    update: AccountNoteUpdate,
+) -> Result<(), String> {
+    update.apply_to(account);
+    save_account(account)
 }
 
 /// 列出所有账号
@@ -445,6 +641,71 @@ pub fn add_account(
     Ok(account)
 }
 
+pub fn is_pending_oauth_account(account: &Account) -> bool {
+    account.pending_oauth
+}
+
+pub fn create_pending_oauth_account(
+    email: String,
+    update: AccountNoteUpdate,
+) -> Result<Account, String> {
+    let email = email.trim().to_string();
+    if email.is_empty() || !email.contains('@') {
+        return Err("账号邮箱不能为空或格式无效".to_string());
+    }
+    let _lock = ACCOUNT_INDEX_LOCK
+        .lock()
+        .map_err(|e| format!("获取锁失败: {}", e))?;
+    let mut index = load_account_index()?;
+    let existing_id = index
+        .accounts
+        .iter()
+        .find(|item| item.email.eq_ignore_ascii_case(&email))
+        .map(|item| item.id.clone());
+    let mut account = if let Some(id) = existing_id {
+        let mut account = load_account(&id)?;
+        if !account.pending_oauth {
+            return Err(format!("账号已存在: {}", email));
+        }
+        account.email = email.clone();
+        account
+    } else {
+        let mut account = Account::new(
+            Uuid::new_v4().to_string(),
+            email.clone(),
+            TokenData::new(
+                String::new(),
+                String::new(),
+                0,
+                Some(email.clone()),
+                None,
+                None,
+            ),
+        );
+        account.pending_oauth = true;
+        account
+    };
+    update.apply_to(&mut account);
+    account.pending_oauth = true;
+    account.update_last_used();
+    save_account(&account)?;
+    if let Some(item) = index.accounts.iter_mut().find(|item| item.id == account.id) {
+        item.email = account.email.clone();
+        item.name = account.name.clone();
+        item.last_used = account.last_used;
+    } else {
+        index.accounts.push(AccountSummary {
+            id: account.id.clone(),
+            email: account.email.clone(),
+            name: account.name.clone(),
+            created_at: account.created_at,
+            last_used: account.last_used,
+        });
+    }
+    save_account_index(&index)?;
+    Ok(account)
+}
+
 /// 添加或更新账号
 pub fn upsert_account(
     email: String,
@@ -456,12 +717,19 @@ pub fn upsert_account(
         .map_err(|e| format!("获取锁失败: {}", e))?;
     let mut index = load_account_index()?;
 
-    let existing_account_id = find_matching_account_id(&index, &email, &token)?;
+    let existing_account_id = index
+        .accounts
+        .iter()
+        .filter_map(|summary| load_account(&summary.id).ok())
+        .find(|account| account.pending_oauth && account.email.eq_ignore_ascii_case(&email))
+        .map(|account| account.id)
+        .or(find_matching_account_id(&index, &email, &token)?);
 
     if let Some(account_id) = existing_account_id {
         match load_account(&account_id) {
             Ok(mut account) => {
                 account.token = token;
+                account.pending_oauth = false;
                 account.name = name.clone();
                 if account.disabled {
                     account.disabled = false;
@@ -522,7 +790,8 @@ pub fn delete_account(account_id: &str) -> Result<(), String> {
     let account_path = accounts_dir.join(format!("{}.json", account_id));
 
     if account_path.exists() {
-        fs::remove_file(&account_path).map_err(|e| format!("删除账号文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&account_path)
+            .map_err(|e| format!("删除账号文件失败: {}", e))?;
     }
 
     Ok(())
@@ -546,7 +815,7 @@ pub fn delete_accounts(account_ids: &[String]) -> Result<(), String> {
 
         let account_path = accounts_dir.join(format!("{}.json", account_id));
         if account_path.exists() {
-            let _ = fs::remove_file(&account_path);
+            let _ = crate::modules::atomic_write::remove_file_locked(&account_path);
         }
     }
 
@@ -1286,7 +1555,6 @@ fn build_quota_alert_notification_text(payload: &QuotaAlertPayload) -> (String, 
         "windsurf" => "Windsurf",
         "kiro" => "Kiro",
         "cursor" => "Cursor",
-        "gemini" => "Gemini Cli",
         "grok" => "Grok CLI",
         "codebuddy" => "CodeBuddy",
         "zed" => "Zed",
@@ -1602,20 +1870,29 @@ pub async fn refresh_all_quotas_logic(
     use std::sync::Arc;
     use tokio::sync::Semaphore;
 
-    const MAX_CONCURRENT: usize = 5;
+    // 自动刷新与手动单账号刷新保持相同的请求节奏，避免多个账号同时触发
+    // loadCodeAssist/fetchAvailableModels/retrieveUserQuotaSummary，导致服务端
+    // 短时限流或网络连接争用。手动批量刷新仍保留较高并发，避免改变用户主动
+    // 操作的响应速度。
+    const MANUAL_MAX_CONCURRENT: usize = 5;
+    const AUTO_MAX_CONCURRENT: usize = 1;
     let start = std::time::Instant::now();
     let trigger_label = match trigger {
         QuotaRefreshTrigger::ManualBatch => "manual_batch",
         QuotaRefreshTrigger::Auto => "auto",
     };
 
+    let max_concurrent = match trigger {
+        QuotaRefreshTrigger::ManualBatch => MANUAL_MAX_CONCURRENT,
+        QuotaRefreshTrigger::Auto => AUTO_MAX_CONCURRENT,
+    };
     modules::logger::log_info(&format!(
         "开始批量刷新所有账号配额 (trigger={}, 并发模式, 最大并发: {})",
-        trigger_label, MAX_CONCURRENT
+        trigger_label, max_concurrent
     ));
     let accounts = list_accounts()?;
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
 
     let tasks: Vec<_> = accounts
         .into_iter()
@@ -2184,4 +2461,145 @@ pub async fn prepare_account_for_injection(account_id: &str) -> Result<Account, 
         save_account(&account)?;
     }
     Ok(account)
+}
+
+#[cfg(test)]
+mod note_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn account_note_fields_roundtrip_encrypted_and_clear() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let data_dir = std::env::temp_dir().join(format!(
+            "antigravity-account-note-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&data_dir);
+        fs::create_dir_all(&data_dir).expect("create test data dir");
+        std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", &data_dir);
+
+        let token = TokenData::new(
+            "access-token".to_string(),
+            "refresh-token".to_string(),
+            3600,
+            Some("note@example.com".to_string()),
+            None,
+            None,
+        );
+        let mut account = Account::new(
+            "note-account".to_string(),
+            "note@example.com".to_string(),
+            token,
+        );
+        account.notes = Some("Main account".to_string());
+        account.two_factor_secret = Some("JBSWY3DPEHPK3PXP".to_string());
+        account.account_password = Some("password-1".to_string());
+        account.phone_number = Some("13800000000".to_string());
+        account.mail_url = Some("https://mail.example.test/inbox".to_string());
+        account.aux_email = Some("backup@example.test".to_string());
+        save_account(&account).expect("save encrypted account");
+
+        let account_path = get_accounts_dir()
+            .expect("account dir")
+            .join("note-account.json");
+        let stored = fs::read_to_string(&account_path).expect("read stored account");
+        assert!(stored.contains("AES-256-GCM"));
+        assert!(!stored.contains("password-1"));
+        assert!(!stored.contains("JBSWY3DPEHPK3PXP"));
+
+        let loaded = load_account("note-account").expect("load account");
+        assert_eq!(loaded.notes.as_deref(), Some("Main account"));
+        assert_eq!(loaded.account_password.as_deref(), Some("password-1"));
+        assert_eq!(loaded.phone_number.as_deref(), Some("13800000000"));
+        assert_eq!(loaded.aux_email.as_deref(), Some("backup@example.test"));
+
+        let cleared = update_account_note(
+            "note-account",
+            AccountNoteUpdate {
+                note: Some(" ".to_string()),
+                two_factor_secret: Some(String::new()),
+                account_password: Some(String::new()),
+                phone_number: Some(String::new()),
+                mail_url: Some(String::new()),
+                aux_email: Some(String::new()),
+            },
+        )
+        .expect("clear account note");
+        assert!(cleared.notes.is_none());
+        assert!(cleared.two_factor_secret.is_none());
+        assert!(cleared.account_password.is_none());
+        assert!(cleared.phone_number.is_none());
+        assert!(cleared.mail_url.is_none());
+        assert!(cleared.aux_email.is_none());
+
+        std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR");
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn pending_oauth_account_is_reused_and_keeps_sensitive_notes() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let data_dir = std::env::temp_dir().join(format!(
+            "antigravity-pending-oauth-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&data_dir);
+        fs::create_dir_all(&data_dir).expect("create test data dir");
+        std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", &data_dir);
+
+        let pending = create_pending_oauth_account(
+            "pending@example.com".to_string(),
+            AccountNoteUpdate {
+                note: Some("delivery note".to_string()),
+                two_factor_secret: Some("JBSWY3DPEHPK3PXP".to_string()),
+                account_password: Some("password-1".to_string()),
+                phone_number: Some("13800000000".to_string()),
+                mail_url: Some("https://mail.example.test/inbox".to_string()),
+                aux_email: Some("backup@example.test".to_string()),
+            },
+        )
+        .expect("create pending account");
+        assert!(pending.pending_oauth);
+        assert!(pending.token.refresh_token.is_empty());
+
+        let token = TokenData::new(
+            "access-token".to_string(),
+            "refresh-token".to_string(),
+            3600,
+            Some("pending@example.com".to_string()),
+            None,
+            None,
+        );
+        let authorized = upsert_account(
+            "pending@example.com".to_string(),
+            Some("Pending User".to_string()),
+            token,
+        )
+        .expect("authorize pending account");
+
+        assert_eq!(authorized.id, pending.id);
+        assert!(!authorized.pending_oauth);
+        assert_eq!(authorized.notes.as_deref(), Some("delivery note"));
+        assert_eq!(authorized.account_password.as_deref(), Some("password-1"));
+        assert_eq!(
+            authorized.two_factor_secret.as_deref(),
+            Some("JBSWY3DPEHPK3PXP")
+        );
+        assert_eq!(authorized.phone_number.as_deref(), Some("13800000000"));
+        assert_eq!(
+            authorized.mail_url.as_deref(),
+            Some("https://mail.example.test/inbox")
+        );
+        assert_eq!(authorized.aux_email.as_deref(), Some("backup@example.test"));
+
+        std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR");
+        let _ = fs::remove_dir_all(&data_dir);
+    }
 }

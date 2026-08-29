@@ -27,7 +27,6 @@ import {
   CODEX_OVERVIEW_FILTER_FIELDS,
   CODEX_OVERVIEW_FILTER_SCOPE,
   buildCodexOverviewGroupFilterOptions,
-  buildCodexOverviewSortOptions,
   buildCodexPlanFilterOptions,
   collectCodexOverviewAvailableTags,
   createCodexOverviewAccountComparator,
@@ -35,12 +34,15 @@ import {
   filterAndSortCodexOverviewAccounts,
   incrementCodexPlanFilterCount,
   isCodexOverviewAccountAbnormal,
+  isCodexOverviewAccountSubscriptionExpired,
+  isCodexOverviewAccountZeroQuota,
   readCodexCustomSortActive,
   readCodexCustomSortOrder,
   writeCodexCustomSortActive,
   type CodexOverviewSortDirection,
 } from "../utils/codexAccountOverview";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
+import { subscribeUserMemory } from "../utils/userMemory";
 
 interface UseCodexAccountOverviewMemberViewOptions {
   accounts: CodexAccount[];
@@ -100,13 +102,13 @@ export function useCodexAccountOverviewMemberView({
   const [groupFilter, setGroupFilter] = useState(() =>
     readPersistedStringArray(CODEX_OVERVIEW_FILTER_FIELDS.groupFilter),
   );
-  const [sortBy, setSortBy] = useState(() =>
+  const [sortBy] = useState(() =>
     readPersistedString(
       CODEX_OVERVIEW_FILTER_FIELDS.sortBy,
       readCodexCustomSortActive() ? "custom" : "created_at",
     ),
   );
-  const [sortDirection, setSortDirection] =
+  const [sortDirection] =
     useState<CodexOverviewSortDirection>(readPersistedSortDirection);
   const activeGroupId = useMemo(() => {
     const value = readPersistedString(
@@ -164,7 +166,9 @@ export function useCodexAccountOverviewMemberView({
     [accountPresentations, t],
   );
 
-  const customSortOrder = useMemo(readCodexCustomSortOrder, [accounts]);
+  const [customSortEpoch, setCustomSortEpoch] = useState(0);
+  useEffect(() => subscribeUserMemory(() => setCustomSortEpoch((value) => value + 1)), []);
+  const customSortOrder = useMemo(readCodexCustomSortOrder, [accounts, customSortEpoch]);
   const compareAccounts = useMemo(
     () =>
       createCodexOverviewAccountComparator({
@@ -220,6 +224,12 @@ export function useCodexAccountOverviewMemberView({
       if (isCodexOverviewAccountAbnormal(account)) {
         counts.ERROR += 1;
       }
+      if (isCodexOverviewAccountZeroQuota(account)) {
+        counts.ZERO_QUOTA += 1;
+      }
+      if (isCodexOverviewAccountSubscriptionExpired(account)) {
+        counts.EXPIRED += 1;
+      }
     });
     return counts;
   }, [accounts]);
@@ -228,7 +238,12 @@ export function useCodexAccountOverviewMemberView({
     () =>
       buildCodexPlanFilterOptions(tierCounts, {
         includeValid: true,
+        includeZeroQuota: true,
+        includeExpired: true,
         pendingLabel: t("codex.pendingAuth.badge", "待授权"),
+        errorLabel: t("codex.filters.authError", "授权失败"),
+        zeroQuotaLabel: t("codex.filters.zeroQuota", "0% 额度"),
+        expiredLabel: t("codex.filters.expired", "已过期"),
         validOption: buildValidAccountsFilterOption(t, tierCounts.VALID),
       }),
     [t, tierCounts],
@@ -241,7 +256,6 @@ export function useCodexAccountOverviewMemberView({
     () => buildCodexOverviewGroupFilterOptions(groups),
     [groups],
   );
-  const sortOptions = useMemo(() => buildCodexOverviewSortOptions(t), [t]);
 
   const toggleArrayValue = useCallback(
     (
@@ -263,15 +277,12 @@ export function useCodexAccountOverviewMemberView({
     filterTypes,
     tagFilter,
     groupFilter,
-    sortBy,
-    sortDirection,
     tierFilterOptions,
     tierFilterAllLabel: t("common.shared.filter.all", {
       count: tierCounts.all,
     }),
     availableTags,
     groupFilterOptions,
-    sortOptions,
     onSearchQueryChange: setSearchQuery,
     onToggleFilterType: (value) => toggleArrayValue(setFilterTypes, value),
     onClearFilterTypes: () => setFilterTypes([]),
@@ -279,8 +290,5 @@ export function useCodexAccountOverviewMemberView({
     onClearTagFilter: () => setTagFilter([]),
     onToggleGroupFilter: (value) => toggleArrayValue(setGroupFilter, value),
     onClearGroupFilter: () => setGroupFilter([]),
-    onSortByChange: setSortBy,
-    onToggleSortDirection: () =>
-      setSortDirection((current) => (current === "desc" ? "asc" : "desc")),
   };
 }

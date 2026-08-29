@@ -353,30 +353,41 @@ pub async fn inject_trae_account(
         "[Trae Switch] 切号前刷新账号: account_id={}, email={}",
         existing.id, existing.email
     ));
-    let account = if let Ok(accounts) = trae_account::list_accounts_checked() {
-        let protection_map = resolve_trae_refresh_protection_map(&accounts);
-        if let Some(storage_path) = protection_map.get(account_id.as_str()) {
-            logger::log_info(&format!(
-                "[Trae Switch] 切号前命中运行中账号保护，改为仅额度刷新: platform={}, account_id={}, storage_path={}",
-                platform_key,
-                account_id,
-                storage_path
-                    .as_ref()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "-".to_string())
-            ));
-            trae_account::refresh_account_usage_only_async(&account_id, storage_path.as_deref())
-                .await
-                .map_err(|err| format!("Trae 切号前刷新失败: {}", err))?
+    // Token refresh is best-effort on switch. Expired ExchangeToken must not block
+    // inject + relaunch; local credentials can still be written and Trae may re-auth.
+    let mut refresh_warning: Option<String> = None;
+    let account = {
+        let refresh_result = if let Ok(accounts) = trae_account::list_accounts_checked() {
+            let protection_map = resolve_trae_refresh_protection_map(&accounts);
+            if let Some(storage_path) = protection_map.get(account_id.as_str()) {
+                logger::log_info(&format!(
+                    "[Trae Switch] 切号前命中运行中账号保护，改为仅额度刷新: platform={}, account_id={}, storage_path={}",
+                    platform_key,
+                    account_id,
+                    storage_path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                ));
+                trae_account::refresh_account_usage_only_async(&account_id, storage_path.as_deref())
+                    .await
+            } else {
+                trae_account::refresh_account_async(&account_id).await
+            }
         } else {
-            trae_account::refresh_account_async(&account_id)
-                .await
-                .map_err(|err| format!("Trae 切号前刷新失败: {}", err))?
+            trae_account::refresh_account_async(&account_id).await
+        };
+        match refresh_result {
+            Ok(account) => account,
+            Err(err) => {
+                logger::log_warn(&format!(
+                    "[Trae Switch] 切号前刷新失败，继续用本地缓存注入并启动: platform={}, account_id={}, email={}, error={}",
+                    platform_key, existing.id, existing.email, err
+                ));
+                refresh_warning = Some(err);
+                existing
+            }
         }
-    } else {
-        trae_account::refresh_account_async(&account_id)
-            .await
-            .map_err(|err| format!("Trae 切号前刷新失败: {}", err))?
     };
 
     if let Err(err) = crate::modules::process::close_trae_platform_default(platform_key, 20) {
@@ -390,7 +401,6 @@ pub async fn inject_trae_account(
         ));
     }
 
-    trae_account::inject_to_trae_for_platform(platform, &account_id)?;
     crate::modules::provider_current_state::set_current_account_id(
         platform_key,
         Some(account_id.as_str()),
@@ -438,6 +448,17 @@ pub async fn inject_trae_account(
     };
 
     let _ = crate::modules::tray::update_tray_menu(&app);
+    let refresh_note = refresh_warning
+        .as_ref()
+        .map(|err| {
+            if err.contains("会话已过期") || err.contains("未认证") || err.contains("ExchangeToken")
+            {
+                "Token 已过期，已用本地缓存切号；若 Trae 仍未登录请在客户端重新登录".to_string()
+            } else {
+                format!("切号前刷新失败：{}", err)
+            }
+        })
+        .unwrap_or_default();
     let notification_note = launch_warning
         .as_ref()
         .map(|_| "账号已切换，但 Trae 启动失败");
@@ -452,22 +473,54 @@ pub async fn inject_trae_account(
 
     if let Some(err) = launch_warning {
         logger::log_warn(&format!(
-            "[Trae Switch] 切号完成但启动失败: platform={}, account_id={}, email={}, elapsed={}ms, error={}",
+            "[Trae Switch] 切号完成但启动失败: platform={}, account_id={}, email={}, elapsed={}ms, error={}, refresh={:?}",
             platform_key,
             account.id,
             account.email,
             started_at.elapsed().as_millis(),
-            err
+            err,
+            refresh_warning
         ));
-        Ok(format!("切换完成，但 {} 启动失败: {}", platform_label, err))
+        let mut msg = format!("切换完成，但 {} 启动失败: {}", platform_label, err);
+        if !refresh_note.is_empty() {
+            msg.push_str("；");
+            msg.push_str(&refresh_note);
+        }
+        Ok(msg)
     } else {
         logger::log_info(&format!(
-            "[Trae Switch] 切号成功: platform={}, account_id={}, email={}, elapsed={}ms",
+            "[Trae Switch] 切号成功: platform={}, account_id={}, email={}, elapsed={}ms, refresh={:?}",
             platform_key,
             account.id,
             account.email,
-            started_at.elapsed().as_millis()
+            started_at.elapsed().as_millis(),
+            refresh_warning
         ));
-        Ok(format!("切换完成: {}", account.email))
+        let mut msg = format!("切换完成: {}", account.email);
+        if !refresh_note.is_empty() {
+            msg.push_str("；");
+            msg.push_str(&refresh_note);
+        }
+        Ok(msg)
     }
+}
+
+// ============ 签到功能命令 ============
+
+/// 获取 Trae 账号的今日签到状态
+#[tauri::command]
+pub async fn get_trae_checkin_status(
+    account_id: String,
+    device_id: String,
+) -> Result<trae_account::CheckinStatusResult, String> {
+    trae_account::get_trae_checkin_status(&account_id, &device_id).await
+}
+
+/// 领取 Trae 账号的今日签到积分
+#[tauri::command]
+pub async fn claim_trae_checkin(
+    account_id: String,
+    device_id: String,
+) -> Result<trae_account::CheckinStatusResult, String> {
+    trae_account::claim_trae_checkin(&account_id, &device_id).await
 }

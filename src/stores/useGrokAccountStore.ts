@@ -27,8 +27,17 @@ export const useGrokAccountStore = createProviderAccountStore<GrokAccount>(
   },
   {
     platformId: 'grok',
+    // 仅在开启「切号同步官方登录」时后端会返回当前账号；关闭时为 null。
     currentAccountIdKey: 'agtools.grok.current_account_id',
     resolveCurrentAccountId: grokService.getGrokCurrentAccountId,
+    acceptEmptyCurrentAccountId: true,
     preserveSourceQuota: true,
   },
 );
+
+// 开关「切号同步官方登录」变化后立即重算是否展示「当前」标识。
+if (typeof window !== 'undefined') {
+  window.addEventListener('config-updated', () => {
+    void useGrokAccountStore.getState().fetchCurrentAccountId();
+  });
+}

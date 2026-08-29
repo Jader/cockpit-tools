@@ -6,7 +6,6 @@ import { ClaudeIcon } from '../icons/ClaudeIcon';
 import { WindsurfIcon } from '../icons/WindsurfIcon';
 import { KiroIcon } from '../icons/KiroIcon';
 import { CursorIcon } from '../icons/CursorIcon';
-import { GeminiIcon } from '../icons/GeminiIcon';
 import { GrokIcon } from '../icons/GrokIcon';
 import { CodebuddyIcon } from '../icons/CodebuddyIcon';
 import { QoderIcon } from '../icons/QoderIcon';
@@ -25,7 +24,12 @@ import { getPlatformLabel } from '../../utils/platformMeta';
 import { PlatformGroupSwitcher } from './PlatformGroupSwitcher';
 import { useRemoteConfigStore } from '../../stores/useRemoteConfigStore';
 
-export type PlatformOverviewTab = 'overview' | 'wakeup' | 'instances' | 'sessions' | 'providers';
+export type PlatformOverviewTab =
+  | 'overview'
+  | 'wakeup'
+  | 'instances'
+  | 'sessions'
+  | 'providers';
 export type PlatformOverviewHeaderId =
   | 'codex'
   | 'claude'
@@ -34,7 +38,6 @@ export type PlatformOverviewHeaderId =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
-  | 'gemini'
   | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
@@ -82,7 +85,7 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     overviewIcon: <Github className="tab-icon" />,
   },
   windsurf: {
-    platformLabel: 'Windsurf',
+    platformLabel: 'Devin',
     overviewIcon: <WindsurfIcon className="tab-icon" />,
   },
   kiro: {
@@ -92,10 +95,6 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
   cursor: {
     platformLabel: 'Cursor',
     overviewIcon: <CursorIcon className="tab-icon" />,
-  },
-  gemini: {
-    platformLabel: 'Gemini Cli',
-    overviewIcon: <GeminiIcon className="tab-icon" />,
   },
   grok: {
     platformLabel: 'Grok CLI',
@@ -189,20 +188,6 @@ export function PlatformOverviewTabsHeader({
       }),
     [switchablePlatforms, currentGroup, t],
   );
-  const extraSwitchOptions = useMemo(
-    () =>
-      platform === 'codex'
-        ? [
-            {
-              id: 'codex-api-service',
-              label: t('codex.apiService.navTitle', 'Codex API 服务'),
-              page: 'codex-api-service' as const,
-              icon: <CodexIcon size={18} />,
-            },
-          ]
-        : [],
-    [platform, t],
-  );
   const tabOrder: PlatformOverviewTab[] =
     tabs && tabs.length > 0 ? tabs : ['overview', 'instances'];
   const tabLabels: Record<PlatformOverviewTab, TabSpec> = {
@@ -242,7 +227,7 @@ export function PlatformOverviewTabsHeader({
       <div className="page-top-strip">
         <div className="page-top-strip-left">
           <span className="page-top-strip-label">
-            {t('settings.general.account', '账号')}
+            {t('settings.general.account', 'Accounts')}
           </span>
           <ManualHelpIconButton className="platform-header-help" />
         </div>
@@ -255,7 +240,6 @@ export function PlatformOverviewTabsHeader({
             currentLabel={currentDisplayName}
             options={switchOptions}
             currentGroupId={currentGroup?.id ?? null}
-            extraOptions={extraSwitchOptions}
           />
         </div>
         <div className="page-tabs filter-tabs">

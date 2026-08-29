@@ -19,7 +19,6 @@ type InstancesAppType =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
-  | 'gemini'
   | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
@@ -46,6 +45,7 @@ interface PlatformInstancesContentProps<TAccount extends AccountLike> {
   unsupportedDescKey: string;
   unsupportedDescDefault: string;
   onInstanceStarted?: (instance: InstanceProfile) => void | Promise<void>;
+  onBeforeStart?: (instance: InstanceProfile) => boolean | Promise<boolean>;
   onInstanceStartError?: (
     error: unknown,
     instance: InstanceProfile,
@@ -70,6 +70,7 @@ export function PlatformInstancesContent<TAccount extends AccountLike>({
   unsupportedDescKey,
   unsupportedDescDefault,
   onInstanceStarted,
+  onBeforeStart,
   onInstanceStartError,
   resolveStartSuccessMessage,
   isAccountAllowedForLaunchMode,
@@ -104,6 +105,7 @@ export function PlatformInstancesContent<TAccount extends AccountLike>({
         getAccountSearchText={getAccountSearchText}
         appType={appType}
         onInstanceStarted={onInstanceStarted}
+        onBeforeStart={onBeforeStart}
         onInstanceStartError={onInstanceStartError}
         resolveStartSuccessMessage={resolveStartSuccessMessage}
         isAccountAllowedForLaunchMode={isAccountAllowedForLaunchMode}

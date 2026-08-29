@@ -39,7 +39,7 @@
   --codex-local-shadow:
     0 34px 90px rgba(2, 6, 23, 0.24), 0 10px 32px rgba(15, 23, 42, 0.14);
   width: 100%;
-  max-width: min(940px, calc(100vw - 48px));
+  max-width: min(1120px, calc(100vw - 32px));
   max-height: none;
   margin: 0 auto;
   border-radius: 28px;
@@ -88,7 +88,7 @@
 }
 
 .codex-local-access-modal-members {
-  max-width: min(780px, calc(100vw - 32px));
+  max-width: min(1080px, calc(100vw - 24px));
 }
 
 .codex-local-access-modal .modal-header {
@@ -1386,58 +1386,6 @@
   padding: 16px 24px 20px;
 }
 
-.codex-local-access-backup-confirm-overlay {
-  z-index: 10020;
-  padding: 20px;
-  background: rgba(15, 23, 42, 0.68);
-}
-
-.codex-local-access-backup-confirm-dialog {
-  width: min(420px, calc(100vw - 40px));
-  max-width: calc(100vw - 40px);
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
-  border-radius: 12px;
-  background: var(--bg-surface);
-  box-shadow: 0 24px 64px rgba(2, 6, 23, 0.36);
-}
-
-.codex-local-access-backup-confirm-header {
-  padding: 18px 20px 14px;
-}
-
-.codex-local-access-backup-confirm-header h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 17px;
-  font-weight: 800;
-}
-
-.codex-local-access-backup-confirm-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px 20px;
-}
-
-.codex-local-access-backup-confirm-body strong {
-  overflow-wrap: anywhere;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.codex-local-access-backup-confirm-body p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.codex-local-access-backup-confirm-footer {
-  gap: 10px;
-  padding: 14px 20px 18px;
-}
-
 .codex-local-access-section {
   display: flex;
   flex-direction: column;
@@ -1499,6 +1447,24 @@
   flex-wrap: wrap;
 }
 
+.codex-local-access-member-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.codex-local-access-member-routing {
+  min-width: 150px;
+  max-width: min(240px, 42vw);
+}
+
+.codex-local-access-member-routing .single-select-dropdown-trigger {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
 .codex-local-access-free-toggle {
   display: inline-flex;
   align-items: center;
@@ -1519,9 +1485,178 @@
   accent-color: var(--primary);
 }
 
+.codex-local-access-session-affinity-settings {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.codex-local-access-session-affinity-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.codex-local-access-session-affinity-toggle,
+.codex-local-access-session-affinity-expiry {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.codex-local-access-session-affinity-toggle > input[type="checkbox"] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--border-strong, var(--border));
+  border-radius: 5px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.codex-local-access-session-affinity-toggle
+  > input[type="checkbox"]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3.5 8.2 6.6 11.2 12.6 4.8' fill='none' stroke='white' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 13px 13px;
+}
+
+.codex-local-access-session-affinity-toggle
+  > input[type="checkbox"]:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.codex-local-access-session-affinity-toggle
+  > input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.codex-local-access-session-affinity-expiry input {
+  width: 82px;
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--codex-local-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface) 90%, transparent);
+  color: var(--text-primary);
+  outline: none;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-local-access-session-affinity-expiry input:focus {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.codex-local-access-session-affinity-expiry input[aria-invalid="true"] {
+  border-color: var(--danger, #ef4444);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+}
+
+.codex-local-access-session-affinity-error {
+  color: var(--danger, #ef4444);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.codex-local-access-member-priority-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.codex-local-access-member-priority-dropdown {
+  width: 90px;
+}
+
+.codex-local-access-member-priority-dropdown
+  .single-select-dropdown-trigger {
+  min-height: 30px;
+  padding: 0 7px 0 10px;
+  border-radius: 9px;
+  gap: 5px;
+}
+
+.codex-local-access-member-priority-dropdown
+  .single-select-dropdown-value {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.codex-local-access-member-priority-dropdown
+  .single-select-dropdown-arrow {
+  width: 20px;
+  height: 20px;
+}
+
+.codex-local-access-member-priority-menu .single-select-dropdown-item {
+  min-height: 34px;
+  padding: 0 9px;
+  border-radius: 9px;
+}
+
+.codex-local-access-member-image-policy-dropdown {
+  width: 112px;
+  min-width: 112px;
+  flex: 0 0 112px;
+}
+
+.codex-local-access-member-image-policy-dropdown
+  .single-select-dropdown-trigger {
+  min-height: 30px;
+  padding: 0 7px 0 9px;
+  border-radius: 9px;
+  gap: 4px;
+}
+
+.codex-local-access-member-image-policy-dropdown
+  .single-select-dropdown-value {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.codex-local-access-custom-routing-usage-priority-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .codex-local-access-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1569,6 +1704,10 @@
 
 .codex-local-access-stat-card-specialTokens {
   color: #7c3aed;
+}
+
+.codex-local-access-stat-card-cost {
+  color: #059669;
 }
 
 .codex-local-access-stat-card-latency {
@@ -1639,9 +1778,19 @@
 }
 
 .codex-local-access-health-pool-card {
+  font-family: inherit;
+  cursor: pointer;
   border-color: rgba(22, 163, 74, 0.2);
   background: rgba(240, 253, 244, 0.72);
   color: #166534;
+}
+
+.codex-local-access-health-pool-card:hover,
+.codex-local-access-health-pool-card:focus-visible {
+  filter: brightness(0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
 }
 
 .codex-local-access-health-pool-card.has-issue {
@@ -2086,42 +2235,6 @@
   flex-wrap: wrap;
 }
 
-.codex-local-access-member-sort-direction {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.codex-local-access-member-sort-direction:hover:not(:disabled) {
-  border-color: var(--border-hover);
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.codex-local-access-member-sort-direction:focus-visible {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
-}
-
-.codex-local-access-member-sort-direction:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .codex-local-access-member-section .account-filter-surface .tag-filter-panel {
   min-width: 300px;
 }
@@ -2238,32 +2351,132 @@
   gap: 8px;
 }
 
+/*
+ * Simple flex rows (no subgrid): checkbox sits tight against the mainline.
+ * Horizontal scroll is on the whole list.
+ */
 .codex-local-access-member-list {
   max-height: min(34vh, 340px);
   padding-right: 4px;
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.codex-local-access-member-list::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.codex-local-access-member-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+.codex-local-access-member-list > .group-account-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* Override default 12px; keep checkbox close to email. */
+  gap: 6px;
+  min-width: max-content;
+  /* Selection only via checkbox or email; other fields are not click targets. */
+  cursor: default;
+}
+
+.codex-local-access-member-list
+  > .group-account-item
+  > input.codex-local-access-member-select {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.codex-local-access-member-list .group-account-main {
+  display: block;
+  flex: 1 0 auto;
+  min-width: 0;
 }
 
 .codex-local-access-member-mainline {
   display: flex;
   align-items: center;
+  gap: 12px;
+  width: max-content;
+  min-width: 980px;
+  flex-wrap: nowrap;
+}
+
+.codex-local-access-member-list .group-account-email {
+  flex: 0 0 18rem;
+  width: 18rem;
+  min-width: 18rem;
+  max-width: 18rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-local-access-member-list .group-account-email:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.codex-local-access-member-list .group-account-email:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.codex-local-access-member-list .codex-local-access-member-plan,
+.codex-local-access-member-list .codex-local-access-member-priority-slot,
+.codex-local-access-member-list .codex-local-access-member-metric,
+.codex-local-access-member-list .codex-local-access-member-trailing {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.codex-local-access-member-list .codex-local-access-member-priority-slot {
+  margin-left: 0;
+  gap: 6px;
+}
+
+.codex-local-access-member-list .codex-local-access-member-plan {
   gap: 8px;
-  width: 100%;
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.codex-local-access-member-mainline::-webkit-scrollbar {
-  display: none;
-}
-
-.codex-local-access-member-mainline .codex-local-access-member-metric,
-.codex-local-access-member-mainline .codex-local-access-quota-line,
-.codex-local-access-member-mainline .tier-badge {
-  flex-wrap: nowrap;
+  min-width: max-content;
   flex-shrink: 0;
+}
+
+.codex-local-access-member-list .codex-local-access-member-trailing {
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.codex-local-access-member-list .codex-local-access-member-metric,
+.codex-local-access-member-list .codex-local-access-quota-line {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.codex-local-access-member-list .codex-local-access-quota-line {
+  width: auto;
+  max-width: none;
+  overflow: visible;
 }
 
 .codex-local-access-member-unsupported {
@@ -2339,14 +2552,7 @@
   border: 1px solid var(--plan-pro-border);
 }
 
-.codex-local-access-member-mainline .group-account-email {
-  flex: 1 0 180px;
-  min-width: 140px;
-  color: var(--text-primary);
-}
-
 .codex-local-access-member-section .group-account-email {
-  min-width: 0;
   font-size: 13px;
   font-weight: 600;
 }
@@ -2375,7 +2581,6 @@
 }
 
 @media (max-width: 980px) {
-  .codex-local-access-stats-grid,
   .codex-local-access-config-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2518,7 +2723,6 @@
 }
 
 @media (max-width: 640px) {
-  .codex-local-access-stats-grid,
   .codex-local-access-config-grid,
   .codex-local-access-config-extra-grid {
     grid-template-columns: 1fr;
@@ -2757,7 +2961,8 @@
   );
 }
 
-[data-theme="dark"] .codex-local-access-free-toggle {
+[data-theme="dark"] .codex-local-access-free-toggle,
+[data-theme="dark"] .codex-local-access-session-affinity-settings {
   background: rgba(15, 23, 42, 0.62);
   border-color: rgba(148, 163, 184, 0.2);
   color: color-mix(in srgb, var(--text-secondary) 88%, var(--text-muted));

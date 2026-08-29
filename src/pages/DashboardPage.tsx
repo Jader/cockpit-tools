@@ -6,7 +6,6 @@ import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountS
 import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
-import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useGrokAccountStore } from '../stores/useGrokAccountStore';
 import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
@@ -65,10 +64,6 @@ import {
   isKiroAccountBanned,
 } from '../types/kiro';
 import { CursorAccount, getCursorUsage } from '../types/cursor';
-import {
-  GeminiAccount,
-  getGeminiTierQuotaSummary,
-} from '../types/gemini';
 import { GrokAccount, getGrokUsage } from '../types/grok';
 import { ClaudeAccount } from '../types/claude';
 import { ZedAccount, getZedUsage } from '../types/zed';
@@ -77,6 +72,7 @@ import {
   isCodexChatCompletionsApiKeyAccount,
   isCodexNewApiAccount,
 } from '../types/codex';
+import { isDeepSeekAccount } from '../utils/codexDeepSeekAccess';
 import './DashboardPage.css';
 import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { RobotIcon } from '../components/icons/RobotIcon';
@@ -84,13 +80,12 @@ import { CodexIcon } from '../components/icons/CodexIcon';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
 import { KiroIcon } from '../components/icons/KiroIcon';
 import { CursorIcon } from '../components/icons/CursorIcon';
-import { GeminiIcon } from '../components/icons/GeminiIcon';
 import { ClaudeIcon } from '../components/icons/ClaudeIcon';
 import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { ZcodeIcon } from '../components/icons/ZcodeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
-import { PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
+import { isAccountPlatform, PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { setAntigravityRuntimeTargetFromPlatform } from '../utils/antigravityRuntimeTarget';
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
@@ -104,7 +99,6 @@ import {
   buildCodebuddyAccountPresentation,
   buildCodexAccountPresentation,
   buildCursorAccountPresentation,
-  buildGeminiAccountPresentation,
   buildGrokAccountPresentation,
   buildGitHubCopilotAccountPresentation,
   buildKiroAccountPresentation,
@@ -124,6 +118,7 @@ import {
 } from '../services/codexApiKeyUsageRefreshService';
 import {
   isModelProviderUsageUnavailableError,
+  resolveNewApiQuotaSnapshot,
   type ModelProviderUsageSummary,
 } from '../services/modelProviderUsageService';
 import * as traeService from '../services/traeService';
@@ -199,9 +194,13 @@ function toFiniteNumber(value: number | null | undefined): number | null {
 
 function resolveDashboardCodexApiUsageMode(
   summary?: ModelProviderUsageSummary | null,
-): 'new_api' | 'sub2api' | null {
+): 'new_api' | 'sub2api' | 'deepseek' | null {
   if (!summary) return null;
-  if (summary.mode === 'new_api' || summary.mode === 'sub2api') {
+  if (
+    summary.mode === 'new_api' ||
+    summary.mode === 'sub2api' ||
+    summary.mode === 'deepseek'
+  ) {
     return summary.mode;
   }
   if (
@@ -322,9 +321,6 @@ export function DashboardPage({
           break;
         case 'cursor':
           await useCursorAccountStore.getState().updateAccountTags(accountId, newTags);
-          break;
-        case 'gemini':
-          await useGeminiAccountStore.getState().updateAccountTags(accountId, newTags);
           break;
         case 'grok':
           await useGrokAccountStore.getState().updateAccountTags(accountId, newTags);
@@ -488,14 +484,6 @@ export function DashboardPage({
     switchAccount: switchCursorAccount,
   } = useCursorAccountStore();
 
-  // Gemini Data
-  const {
-    accounts: geminiAccounts,
-    currentAccountId: geminiCurrentId,
-    fetchAccounts: fetchGeminiAccounts,
-    switchAccount: switchGeminiAccount,
-  } = useGeminiAccountStore();
-
   // Grok CLI Data
   const {
     accounts: grokAccounts,
@@ -629,7 +617,6 @@ export function DashboardPage({
       fetchWindsurfAccounts,
       fetchKiroAccounts,
       fetchCursorAccounts,
-      fetchGeminiAccounts,
       fetchGrokAccounts,
       fetchCodebuddyAccounts,
       fetchCodebuddyCnAccounts,
@@ -710,9 +697,7 @@ export function DashboardPage({
         githubCopilotAccounts.length +
         windsurfAccounts.length +
         kiroAccounts.length +
-        cursorAccounts.length +
-        geminiAccounts.length +
-        grokAccounts.length +
+        cursorAccounts.length +        grokAccounts.length +
         codebuddyAccounts.length +
         codebuddyCnAccounts.length +
         qoderAccounts.length +
@@ -726,9 +711,7 @@ export function DashboardPage({
       githubCopilot: githubCopilotAccounts.length,
       windsurf: windsurfAccounts.length,
       kiro: kiroAccounts.length,
-      cursor: cursorAccounts.length,
-      gemini: geminiAccounts.length,
-      grok: grokAccounts.length,
+      cursor: cursorAccounts.length,      grok: grokAccounts.length,
       codebuddy: codebuddyAccounts.length,
       codebuddy_cn: codebuddyCnAccounts.length,
       qoder: qoderAccounts.length,
@@ -739,7 +722,7 @@ export function DashboardPage({
       trae_solo_cn: traeAccountsByPlatform.trae_solo_cn.length,
       workbuddy: workbuddyAccounts.length,
     };
-  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, geminiAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, traeAccountsByPlatform, workbuddyAccounts]);
+  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, traeAccountsByPlatform, workbuddyAccounts]);
 
   const dashboardAvailableTags = useMemo(() => {
     const tagSet = new Set<string>();
@@ -751,9 +734,7 @@ export function DashboardPage({
       ...githubCopilotAccounts,
       ...windsurfAccounts,
       ...kiroAccounts,
-      ...cursorAccounts,
-      ...geminiAccounts,
-      ...grokAccounts,
+      ...cursorAccounts,      ...grokAccounts,
       ...codebuddyAccounts,
       ...codebuddyCnAccounts,
       ...qoderAccounts,
@@ -769,7 +750,7 @@ export function DashboardPage({
       }
     }
     return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
-  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, geminiAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, workbuddyAccounts]);
+  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, workbuddyAccounts]);
 
 
   // Refresh States
@@ -794,9 +775,7 @@ export function DashboardPage({
     githubCopilot: boolean;
     windsurf: boolean;
     kiro: boolean;
-    cursor: boolean;
-    gemini: boolean;
-    grok: boolean;
+    cursor: boolean;    grok: boolean;
     codebuddy: boolean;
     codebuddyCn: boolean;
     qoder: boolean;
@@ -811,9 +790,7 @@ export function DashboardPage({
     githubCopilot: false,
     windsurf: false,
     kiro: false,
-    cursor: false,
-    gemini: false,
-    grok: false,
+    cursor: false,    grok: false,
     codebuddy: false,
     codebuddyCn: false,
     qoder: false,
@@ -891,7 +868,12 @@ export function DashboardPage({
     account: CodexAccount,
     options?: { force?: boolean },
   ) => {
-    if (isCodexChatCompletionsApiKeyAccount(account)) return;
+    if (
+      isCodexChatCompletionsApiKeyAccount(account) &&
+      !isDeepSeekAccount(account)
+    ) {
+      return;
+    }
     const apiKey = (account.openai_api_key || '').trim();
     const baseUrl = (account.api_base_url || '').trim();
     if (!apiKey || !baseUrl) return;
@@ -998,22 +980,6 @@ export function DashboardPage({
     setRefreshing((prev) => new Set(prev).add(accountId));
     try {
       await useCursorAccountStore.getState().refreshToken(accountId);
-    } catch (error) {
-      console.error('Refresh failed:', error);
-    } finally {
-      setRefreshing((prev) => {
-        const next = new Set(prev);
-        next.delete(accountId);
-        return next;
-      });
-    }
-  };
-
-  const handleRefreshGemini = async (accountId: string) => {
-    if (refreshing.has(accountId)) return;
-    setRefreshing((prev) => new Set(prev).add(accountId));
-    try {
-      await useGeminiAccountStore.getState().refreshToken(accountId);
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
@@ -1153,21 +1119,6 @@ export function DashboardPage({
     }
   };
 
-  const handleRefreshGeminiCard = async () => {
-    if (cardRefreshing.gemini) return;
-    setCardRefreshing((prev) => ({ ...prev, gemini: true }));
-    const idsToRefresh = [geminiCurrent?.id, geminiRecommended?.id].filter(Boolean) as string[];
-    try {
-      for (const id of idsToRefresh) {
-        await useGeminiAccountStore.getState().refreshToken(id);
-      }
-    } catch (error) {
-      console.error('Card refresh failed:', error);
-    } finally {
-      setCardRefreshing((prev) => ({ ...prev, gemini: false }));
-    }
-  };
-
   const handleRefreshGrokCard = async () => {
     if (cardRefreshing.grok) return;
     setGrokActionMessage(null);
@@ -1286,22 +1237,6 @@ export function DashboardPage({
     setSwitching((prev) => new Set(prev).add(accountId));
     try {
       await switchCursorAccount(accountId);
-    } catch (error) {
-      console.error('Switch failed:', error);
-    } finally {
-      setSwitching((prev) => {
-        const next = new Set(prev);
-        next.delete(accountId);
-        return next;
-      });
-    }
-  };
-
-  const handleSwitchGemini = async (accountId: string) => {
-    if (switching.has(accountId)) return;
-    setSwitching((prev) => new Set(prev).add(accountId));
-    try {
-      await switchGeminiAccount(accountId);
     } catch (error) {
       console.error('Switch failed:', error);
     } finally {
@@ -1659,7 +1594,9 @@ export function DashboardPage({
 
     const others = codexAccounts.filter((a) => {
       if (a.id === currentId) return false;
-      if (isCodexChatCompletionsApiKeyAccount(a)) return false;
+      if (isCodexChatCompletionsApiKeyAccount(a) && !isDeepSeekAccount(a)) {
+        return false;
+      }
       if (!a.quota) return false;
       return true;
     });
@@ -1677,7 +1614,13 @@ export function DashboardPage({
   const codexCardRefreshTargets = useMemo(() => {
     const deduped = new Map<string, CodexAccount>();
     [codexCurrentAccount, codexRecommended].forEach((account) => {
-      if (!account || isCodexChatCompletionsApiKeyAccount(account)) return;
+      if (
+        !account ||
+        (isCodexChatCompletionsApiKeyAccount(account) &&
+          !isDeepSeekAccount(account))
+      ) {
+        return;
+      }
       deduped.set(account.id, account);
     });
     return Array.from(deduped.values());
@@ -1749,11 +1692,6 @@ export function DashboardPage({
   const cursorCurrent = useMemo(
     () => resolveDashboardCurrentAccount(cursorAccounts, cursorCurrentId),
     [cursorAccounts, cursorCurrentId],
-  );
-
-  const geminiCurrent = useMemo(
-    () => resolveDashboardCurrentAccount(geminiAccounts, geminiCurrentId),
-    [geminiAccounts, geminiCurrentId],
   );
 
   const grokCurrent = useMemo(
@@ -1933,43 +1871,6 @@ export function DashboardPage({
       return candidateScore.freshness > bestScore.freshness ? candidate : best;
     });
   }, [cursorAccounts, cursorCurrent?.id]);
-
-  const geminiRecommended = useMemo(() => {
-    if (geminiAccounts.length <= 1) return null;
-    const currentId = geminiCurrent?.id;
-    const others = geminiAccounts.filter((a) => a.id !== currentId);
-    if (others.length === 0) return null;
-
-    const getScore = (account: GeminiAccount) => {
-      const tiers = getGeminiTierQuotaSummary(account);
-      const remainingValues = [
-        tiers.gemini5h.remainingPercent,
-        tiers.geminiWeekly.remainingPercent,
-        tiers.claude5h.remainingPercent,
-        tiers.claudeWeekly.remainingPercent,
-      ].filter(
-        (value): value is number => typeof value === 'number' && Number.isFinite(value),
-      );
-      const totalUsed = remainingValues.length > 0
-        ? 100 - Math.min(...remainingValues)
-        : null;
-      return {
-        remainingPercent: totalUsed == null ? -1 : 100 - totalUsed,
-        freshness: account.last_used || account.created_at || 0,
-      };
-    };
-
-    return others.reduce((best, candidate) => {
-      const bestScore = getScore(best);
-      const candidateScore = getScore(candidate);
-      if (candidateScore.remainingPercent !== bestScore.remainingPercent) {
-        return candidateScore.remainingPercent > bestScore.remainingPercent
-          ? candidate
-          : best;
-      }
-      return candidateScore.freshness > bestScore.freshness ? candidate : best;
-    });
-  }, [geminiAccounts, geminiCurrent?.id]);
 
   const grokRecommended = useMemo(() => {
     if (grokAccounts.length <= 1) return null;
@@ -2401,18 +2302,27 @@ export function DashboardPage({
       const usageState = codexApiUsageMap[account.id];
       const usageSummary = usageState?.summary;
       const usageMode = resolveDashboardCodexApiUsageMode(usageSummary);
-      const newApiGranted = Number(
-        usageSummary?.details?.find((item) => item.key === 'totalGranted')?.value ?? NaN,
-      );
-      const newApiAvailable = Number(
-        usageSummary?.details?.find((item) => item.key === 'totalAvailable')?.value ?? NaN,
-      );
-      const newApiExpiresAt = Number(
-        usageSummary?.details?.find((item) => item.key === 'expiresAt')?.value ?? NaN,
-      );
+      const formatMiniUsageMoney = (
+        value?: number | null,
+        unit?: string | null,
+      ) => {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+        const normalized = (unit || 'CNY').trim();
+        if (normalized === 'USD') return `$${value.toFixed(2)}`;
+        if (normalized === 'CNY') return `¥${value.toFixed(2)}`;
+        return `${value.toFixed(2)} ${normalized}`;
+      };
+      const deepSeekDetailValue = (key: string) => {
+        const item = usageSummary?.details?.find((detail) => detail.key === key);
+        return item?.value || '-';
+      };
+      const newApiQuota = resolveNewApiQuotaSnapshot(usageSummary);
+      const newApiGranted = newApiQuota.granted;
+      const newApiAvailable = newApiQuota.available;
+      const newApiExpiresAt = newApiQuota.expiresAt;
       const isUnlimited = usageSummary?.quotaUnlimited === true;
       const progressPercent =
-        usageMode === 'new_api' && Number.isFinite(newApiGranted) && Number.isFinite(newApiAvailable) && newApiGranted > 0
+        usageMode === 'new_api' && newApiGranted != null && newApiAvailable != null && newApiGranted > 0
           ? Math.max(0, Math.min(100, Math.round(((newApiGranted - newApiAvailable) / newApiGranted) * 100)))
           : isUnlimited
             ? 100
@@ -2431,7 +2341,7 @@ export function DashboardPage({
             </div>
           </div>
 
-          {!isChatCompletionsApiKey && (
+          {(!isChatCompletionsApiKey || isDeepSeekAccount(account)) && (
             <div className="account-mini-quotas codex-api-mini-quotas">
               {usageMode === 'new_api' ? (
                 <div className="mini-quota-row-stacked">
@@ -2440,7 +2350,7 @@ export function DashboardPage({
                     <span className="model-pct high">
                       {isUnlimited
                         ? t('codex.newApi.quota.unlimited', '不限量')
-                        : Number.isFinite(newApiAvailable) && Number.isFinite(newApiGranted)
+                        : newApiAvailable != null && newApiGranted != null
                           ? `$${newApiAvailable.toFixed(2)} / $${newApiGranted.toFixed(2)}`
                           : '-'}
                     </span>
@@ -2452,7 +2362,7 @@ export function DashboardPage({
                     />
                   </div>
                   <div className="mini-reset-time">
-                    {Number.isFinite(newApiExpiresAt) && newApiExpiresAt > 0
+                    {newApiExpiresAt != null && newApiExpiresAt > 0
                       ? `${t('codex.modelProviders.usage.fields.expiresAt', '过期时间')} ${new Date(newApiExpiresAt * 1000).toLocaleDateString()}`
                       : t('dashboard.noData', '暂无数据')}
                   </div>
@@ -2472,6 +2382,21 @@ export function DashboardPage({
                     <strong>{typeof usageSummary?.todayTotalTokens === 'number' ? usageSummary.todayTotalTokens.toLocaleString('en-US') : '-'}</strong>
                   </div>
                 </div>
+              ) : usageMode === 'deepseek' ? (
+                <div className="codex-api-mini-stats">
+                  <div className="codex-api-mini-stat">
+                    <span>{t('codex.modelProviders.usage.fields.totalBalance', '总余额')}</span>
+                    <strong>{formatMiniUsageMoney(usageSummary?.balance, usageSummary?.unit)}</strong>
+                  </div>
+                  <div className="codex-api-mini-stat">
+                    <span>{t('codex.modelProviders.usage.fields.grantedBalance', '赠金余额')}</span>
+                    <strong>{deepSeekDetailValue('grantedBalance')}</strong>
+                  </div>
+                  <div className="codex-api-mini-stat">
+                    <span>{t('codex.modelProviders.usage.fields.toppedUpBalance', '充值余额')}</span>
+                    <strong>{deepSeekDetailValue('toppedUpBalance')}</strong>
+                  </div>
+                </div>
               ) : (
                 <span className="no-data-text">{t('dashboard.noData', '暂无数据')}</span>
               )}
@@ -2479,7 +2404,7 @@ export function DashboardPage({
           )}
 
           <div className="account-mini-actions icon-only-row">
-            {!isChatCompletionsApiKey && (
+            {(!isChatCompletionsApiKey || isDeepSeekAccount(account)) && (
               <button
                 className="mini-icon-btn"
                 onClick={() => void refreshCodexApiUsage(account, { force: true })}
@@ -2519,7 +2444,8 @@ export function DashboardPage({
         Boolean(account) &&
         isCodexApiKeyAccount(account!) &&
         !isCodexNewApiAccount(account!) &&
-        !isCodexChatCompletionsApiKeyAccount(account!),
+        (!isCodexChatCompletionsApiKeyAccount(account!) ||
+          isDeepSeekAccount(account!)),
     );
     targetAccounts.forEach((account) => {
       const usageState = codexApiUsageMap[account.id];
@@ -2624,50 +2550,6 @@ export function DashboardPage({
       sublineText: `Auth ID: ${maskedAuthIdText}`,
       sublineTitle: `Auth ID: ${maskedAuthIdText}`,
       onEditTags: () => setTagModalState({ accountId: account.id, platform: 'cursor', tags: account.tags || [] }),
-    });
-  };
-
-  const renderGeminiAccountContent = (account: GeminiAccount | null) => {
-    if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
-
-    const formatRelativeDuration = (seconds: number) => {
-      const safe = Math.max(0, Math.floor(seconds));
-      const totalMinutes = Math.floor(safe / 60);
-      if (totalMinutes < 1) {
-        return t('common.shared.time.lessThanMinute', '<1分钟');
-      }
-      const days = Math.floor(totalMinutes / (60 * 24));
-      const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
-      const minutes = totalMinutes % 60;
-      if (days > 0 && hours > 0) {
-        return t('common.shared.time.relativeDaysHours', '{{days}}天{{hours}}小时', { days, hours });
-      }
-      if (days > 0) {
-        return t('common.shared.time.relativeDays', '{{days}}天', { days });
-      }
-      if (hours > 0 && minutes > 0) {
-        return t('common.shared.time.relativeHoursMinutes', '{{hours}}小时{{minutes}}分钟', { hours, minutes });
-      }
-      if (hours > 0) {
-        return t('common.shared.time.relativeHours', '{{hours}}小时', { hours });
-      }
-      return t('common.shared.time.relativeMinutes', '{{minutes}}分钟', { minutes });
-    };
-
-    const updatedAt = account.last_used || account.created_at || 0;
-    const updatedDiffSeconds = Math.floor(Date.now() / 1000) - updatedAt;
-    const updatedText = t('gemini.updated.label', 'Updated {{relative}} ago', {
-      relative: formatRelativeDuration(updatedDiffSeconds),
-    });
-    const presentation = buildGeminiAccountPresentation(account, t);
-    return renderUnifiedAccountCard({
-      presentation,
-      onRefresh: () => handleRefreshGemini(account.id),
-      onSwitch: () => handleSwitchGemini(account.id),
-      isRefreshing: refreshing.has(account.id),
-      isSwitching: switching.has(account.id),
-      sublineText: updatedText,
-      onEditTags: () => setTagModalState({ accountId: account.id, platform: 'gemini', tags: account.tags || [] }),
     });
   };
 
@@ -2780,13 +2662,13 @@ export function DashboardPage({
     antigravity: stats.antigravity,
     antigravity_ide: stats.antigravity,
     codex: stats.codex,
+    codex_api_service: 0,
     claude_manager: stats.claude,
     zed: stats.zed,
     'github-copilot': stats.githubCopilot,
     windsurf: stats.windsurf,
     kiro: stats.kiro,
     cursor: stats.cursor,
-    gemini: stats.gemini,
     grok: stats.grok,
     codebuddy: stats.codebuddy,
     codebuddy_cn: stats.codebuddy_cn,
@@ -2836,10 +2718,15 @@ export function DashboardPage({
         continue;
       }
       const defaultPlatformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
-      const platformId =
+      const preferredPlatformId =
         defaultPlatformId && entryPlatformIds.includes(defaultPlatformId)
           ? defaultPlatformId
           : entryPlatformIds[0];
+      // Account cards need a real account platform; service-only platforms are skipped.
+      const platformId =
+        preferredPlatformId && isAccountPlatform(preferredPlatformId)
+          ? preferredPlatformId
+          : entryPlatformIds.find((candidate) => isAccountPlatform(candidate));
       if (!platformId) {
         continue;
       }
@@ -2883,6 +2770,9 @@ export function DashboardPage({
   );
 
   const renderPlatformCard = (platformId: PlatformId) => {
+    if (!isAccountPlatform(platformId)) {
+      return null;
+    }
     if (platformId === 'antigravity') {
       return (
         <div className="main-card antigravity-card" key={platformId}>
@@ -3253,53 +3143,6 @@ export function DashboardPage({
           </div>
 
           <button className="card-footer-action" onClick={() => onNavigate('cursor')}>
-            {t('dashboard.viewAllAccounts', '查看所有账号')}
-          </button>
-        </div>
-      );
-    }
-
-    if (platformId === 'gemini') {
-      return (
-        <div className="main-card windsurf-card" key={platformId}>
-          <div className="main-card-header">
-            <div className="header-title">
-              <GeminiIcon style={{ width: 18, height: 18 }} />
-              <h3>Gemini Cli</h3>
-            </div>
-            <div className="header-action-group">
-              <button
-                className="header-action-btn"
-                onClick={handleRefreshGeminiCard}
-                disabled={cardRefreshing.gemini}
-                title={t('common.refresh', '刷新')}
-              >
-                <RotateCw size={14} className={cardRefreshing.gemini ? 'loading-spinner' : ''} />
-                <span>{t('common.refresh', '刷新')}</span>
-              </button>
-              {renderHideCardButton(platformId)}
-            </div>
-          </div>
-
-          <div className="split-content">
-            <div className="split-half current-half">
-              <span className="half-label"><CheckCircle2 size={12} /> {t('dashboard.current', '当前账户')}</span>
-              {renderGeminiAccountContent(geminiCurrent)}
-            </div>
-
-            <div className="split-divider"></div>
-
-            <div className="split-half recommend-half">
-              <span className="half-label"><Sparkles size={12} /> {t('dashboard.recommended', '推荐账号')}</span>
-              {geminiRecommended ? (
-                renderGeminiAccountContent(geminiRecommended)
-              ) : (
-                <div className="empty-slot-text">{t('dashboard.noRecommendation', '暂无更好推荐')}</div>
-              )}
-            </div>
-          </div>
-
-          <button className="card-footer-action" onClick={() => onNavigate('gemini')}>
             {t('dashboard.viewAllAccounts', '查看所有账号')}
           </button>
         </div>
@@ -3781,9 +3624,7 @@ export function DashboardPage({
                       ? 'github'
                       : platformId === 'cursor'
                         ? 'info'
-                        : platformId === 'gemini'
-                          ? 'info'
-                          : 'windsurf';
+                        : 'windsurf';
           return (
             <button
               className="stat-card stat-card-button"

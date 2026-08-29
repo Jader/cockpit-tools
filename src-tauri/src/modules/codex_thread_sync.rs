@@ -622,6 +622,10 @@ fn sync_thread_plan_to_instance(
         metadata_rebuild_failed = !try_rebuild_thread_metadata(target);
     }
     update_global_state_thread_workspaces(&target.data_dir, workspace_snapshots)?;
+    let _ = modules::backup_storage::prune_behavior_backups(
+        "codex",
+        &modules::backup_storage::scope_for_path(&target.data_dir),
+    );
     Ok(ThreadSyncWriteResult {
         backup_dir,
         metadata_rebuild_failed,
@@ -927,10 +931,15 @@ fn rollout_file_metadata(path: &Path) -> (i128, u64) {
 }
 
 fn backup_instance_files(data_dir: &Path) -> Result<PathBuf, String> {
-    let backup_dir = data_dir.join(format!(
-        "backup-{}-instance-thread-sync",
-        Utc::now().format("%Y%m%d-%H%M%S")
-    ));
+    let scope = modules::backup_storage::scope_for_path(data_dir);
+    let backup_dir = modules::backup_storage::behavior_backup_dir(
+        "codex",
+        &scope,
+        &format!(
+            "{}-instance-thread-sync",
+            Utc::now().format("%Y%m%d-%H%M%S")
+        ),
+    )?;
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("创建备份目录失败 ({}): {}", data_dir.display(), error))?;
 
@@ -1115,13 +1124,9 @@ fn session_index_workspace_root(entry: &JsonValue) -> Option<String> {
 }
 
 fn normalize_workspace_root(value: &str) -> Option<String> {
-    let mut value = value.trim();
-    if value.is_empty() {
-        return None;
-    }
-    if let Some(stripped) = value.strip_prefix("\\\\?\\") {
-        value = stripped;
-    }
+    let normalized_desktop_path =
+        modules::codex_session_visibility::to_desktop_workspace_path(value)?;
+    let value = normalized_desktop_path.as_str();
 
     let is_windows_path = value.starts_with("\\\\")
         || value
@@ -1609,6 +1614,10 @@ mod tests {
         assert_eq!(
             normalize_workspace_root(r"\\?\C:\Users\demo\project\").as_deref(),
             Some(r"C:\Users\demo\project")
+        );
+        assert_eq!(
+            normalize_workspace_root(r"\\?\UNC\server\share\project\").as_deref(),
+            Some(r"\\server\share\project")
         );
         assert_eq!(
             normalize_workspace_root("C:/Users/demo/project/").as_deref(),

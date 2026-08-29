@@ -45,6 +45,7 @@ import {
   getWindsurfUsage,
 } from '../types/windsurf';
 import { buildWindsurfAccountPresentation } from '../presentation/platformAccountPresentation';
+import { scrollElementIntoView } from '../utils/reducedMotion';
 
 import { WindsurfOverviewTabsHeader, WindsurfTab } from '../components/WindsurfOverviewTabsHeader';
 import { WindsurfInstancesContent } from './WindsurfInstancesPage';
@@ -431,7 +432,7 @@ export function WindsurfAccountsPage() {
 
   const scrollModalFeedbackIntoView = useCallback((ref: { current: HTMLDivElement | null }) => {
     requestAnimationFrame(() => {
-      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      scrollElementIntoView(ref.current, { block: 'nearest' });
     });
   }, []);
 
@@ -1468,14 +1469,6 @@ export function WindsurfAccountsPage() {
         <div className="empty-state"><h3>{t('common.shared.noMatch.title', '没有匹配的账号')}</h3><p>{t('common.shared.noMatch.desc', '请尝试调整搜索或筛选条件')}</p></div>
       ) : viewMode === 'grid' ? (
         <div className="grid-view-container">
-          {paginatedAccounts.length > 0 && (
-            <div className="grid-view-header" style={{ marginBottom: '12px', paddingLeft: '4px' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-color)' }}>
-                <input type="checkbox" checked={isAllPaginatedSelected} onChange={() => toggleSelectAll(paginatedIds)} />
-                {t('common.selectAll', '全选')}
-              </label>
-            </div>
-          )}
           {groupByTag ? (
           <div className="tag-group-list">{paginatedGroupedAccounts.map(({ groupKey, items, totalCount }) => (
             <div key={groupKey} className="tag-group-section"><div className="tag-group-header"><span className="tag-group-title">{resolveGroupLabel(groupKey)}</span><span className="tag-group-count">{totalCount}</span></div>

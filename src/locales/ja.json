@@ -2,6 +2,8 @@
   "common": {
     "confirm": "確認",
     "cancel": "キャンセル",
+    "cancelling": "キャンセル中...",
+    "cancelled": "キャンセル済み",
     "save": "保存",
     "saving": "保存中...",
     "delete": "削除",
@@ -24,6 +26,49 @@
     "detail": "詳細",
     "editable": "編集可",
     "preview": "プレビュー",
+    "advancedSettings": "詳細設定",
+    "windowsOperation": {
+      "title": "Windows 操作が完了していません",
+      "accessDeniedDescription": "Windows により操作が拒否されました。対象が高い権限で実行中か、保護された場所にある可能性があります。",
+      "fileInUseDescription": "対象ファイルは別のプログラムで使用中です。そのプログラムを閉じて再試行してください。",
+      "programNotFoundDescription": "操作に必要なプログラムが見つかりません。インストール状態または設定パスを確認してください。",
+      "portDeniedDescription": "Windows がポートへのアクセスをブロックしました。システムポリシーまたは別のプログラムが使用している可能性があります。",
+      "genericDescription": "システム操作が完了しませんでした。再試行するか、元の原因を解決してから続行してください。",
+      "originalReason": "元の原因",
+      "copyError": "エラーをコピー",
+      "openTarget": "場所を開く",
+      "viewDetails": "詳細を表示",
+      "hideDetails": "詳細を閉じる",
+      "operationLabel": "操作",
+      "targetLabel": "対象",
+      "attemptedRecoveries": "試行済み",
+      "manualContinue": "対処済み、続行",
+      "retry": "再試行",
+      "authorizeContinue": "許可して続行",
+      "authorizationCancelled": "Windows の許可がキャンセルされたため、操作は続行されませんでした。"
+    },
+    "codexFingerprint": {
+      "modeLabel": "デバイス識別モード",
+      "modeHint": "OAuth のみ。既定はセッション。アカウントごとにインストール／セッションを分離し、ワークスペースを書き換えて同一端末の複数アカウントの紐付けを防ぎます。",
+      "session": "セッション（推奨）",
+      "device": "デバイス",
+      "full": "完全",
+      "off": "オフ",
+      "batchAction": "識別を設定",
+      "batchSaved": "{{count}} 件の OAuth アカウントのデバイス識別モードを更新しました",
+      "batchFailed": "デバイス識別モードを更新できませんでした: {{error}}",
+      "short": "識別",
+      "settingsTitle": "Codex 識別設定",
+      "accountHint": "{{account}} のデバイスおよびセッション ID の収束方法を設定します。",
+      "batchHint": "選択した {{count}} 件の OAuth アカウントのデバイスおよびセッション ID の収束方法を設定します。",
+      "saved": "デバイス識別モードを保存しました",
+      "saveFailed": "デバイス識別モードを保存できませんでした: {{error}}"
+    },
+    "sessionSharing": {
+      "title": "切替時にローカル会話を共有",
+      "fullDesc": "アカウント切替時に、この端末の {{platform}} アカウント間でローカル会話と復元状態を統合します。ファイルは端末内だけで読み書きされ、会話内容はアップロードされません。",
+      "workspaceDesc": "アカウント切替時に、この端末の {{platform}} アカウント間で workspace の会話インデックスと復元状態をコピーして統合します。暗号化された Builder/Agent 会話データベースは変更せず、内容もアップロードしません。"
+    },
     "shared": {
       "addAccount": "アカウントを追加",
       "columns": {
@@ -124,6 +169,13 @@
       },
       "oauth": {
         "failed": "認可失敗",
+        "deviceAuth": "デバイス認証",
+        "deviceCode": "デバイスコード",
+        "browserAuth": "ブラウザ認証",
+        "deviceAuthWaiting": "以下の手順を完了すると、アプリが自動的に続行します",
+        "deviceAuthPrerequisite": "デバイスコード認証が無効な場合は、先に ChatGPT のセキュリティ設定で Codex のデバイスコード認証を有効にしてください。",
+        "openSecuritySettings": "設定を開く",
+        "deviceAuthFootnote": "デバイス認証はローカルのコールバックポート 1455 を使用しません。",
         "hint": "認可完了後、このウィンドウは自動更新されます",
         "openBrowser": "ブラウザで開く",
         "normalWindow": "通常ウィンドウ",
@@ -240,7 +292,7 @@
     "settings": "設定",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "ダッシュボード",
     "morePlatforms": "その他のプラットフォーム",
     "instances": "マルチインスタンス",
@@ -250,7 +302,6 @@
       "restart": "再起動",
       "installing": "インストール中"
     },
-    "gemini": "Gemini Cli​",
     "codebuddy": "CodeBuddy​",
     "qoder": "Qoder​",
     "trae": "Trae​",
@@ -271,7 +322,9 @@
     "switchClassicLayoutConfirm": "今すぐ切り替える",
     "2faManager": "2FA管理",
     "apiRelay": "リレー",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "スポンサー",
@@ -494,7 +547,45 @@
       "noneRunning": "実行中のインスタンスが見つかりません",
       "syncThreadsNeedTwo": "スレッドを同期するには少なくとも2つのインスタンスが必要です",
       "launchPrepared": "起動コマンドの準備ができました",
+      "codexManagedStoreLaunchUnsafe": "Windows Store ではインスタンスディレクトリを確実に引き継げないため、既定アカウントが開かれないよう起動を中止しました。このインスタンスの起動方式を CLI に変更して、もう一度お試しください。詳細: {{detail}}",
       "speedUpdated": "速度を更新しました"
+    },
+    "accountLease": {
+      "title": "Codex インスタンスを起動中",
+      "progress": "起動の進行状況",
+      "conflictTitle": "アカウントは使用中です",
+      "completedTitle": "インスタンスを起動しました",
+      "cancelledTitle": "起動をキャンセルしました",
+      "failedTitle": "インスタンスの起動に失敗しました",
+      "skipAndLaunch": "スキップして起動",
+      "conflictAccount": "アカウント：{{account}}",
+      "conflictDescription": "このアカウントは {{owners}} で実行中です。公式インスタンス間で refresh_token が競合しないよう、1 つの OAuth アカウントは 1 つのインスタンスでのみ実行できます。",
+      "locate": "インスタンスを表示",
+      "selectOther": "別のアカウント",
+      "transfer": "停止して移行",
+      "steps": {
+        "checkInstance": "対象インスタンスを確認",
+        "checkAccount": "連携アカウントを確認",
+        "checkOccupancy": "アカウントの使用状況を確認",
+        "stopPrevious": "元のインスタンスを停止",
+        "prepareCredentials": "認証情報を準備",
+        "writeProfile": "インスタンス設定を書き込み",
+        "startClient": "Codex クライアントを起動"
+      },
+      "detail": {
+        "checkingInstance": "インスタンス設定を読み込んでいます...",
+        "checkingAccount": "OAuth アカウントとトークンを確認しています...",
+        "noOAuthAccount": "OAuth アカウントが連携されていないため、使用状況の確認は不要です",
+        "accountInUse": "この OAuth アカウントは実行中のインスタンスで使用されています",
+        "accountAvailable": "このアカウントを使用中の他のインスタンスはありません",
+        "transferSkipped": "アカウントの移行は不要です",
+        "stoppingOwners": "安全に停止中：{{owners}}",
+        "stoppingPrevious": "元のインスタンスを安全に停止し、最新の認証情報を回収しています...",
+        "preparingCredentials": "トークンを確認し、必要に応じて認証情報一式を更新しています...",
+        "profileReady": "インスタンスの auth.json / キーチェーンを安全に更新しました",
+        "cliPrepared": "CLI 起動コマンドの準備ができました",
+        "startingClient": "Codex クライアントプロセスを起動して確認しています..."
+      }
     },
     "runningDialog": {
       "title": "インスタンスは既に実行中です",
@@ -582,13 +673,14 @@
       "theme": "テーマ",
       "themeDesc": "ダークモードとライトモードを切り替えます",
       "defaultTerminal": "デフォルトのターミナル",
-      "defaultTerminalDesc": "Gemini CLIを開くときに使用されるターミナル",
+      "defaultTerminalDesc": "CLIを開くときに使用されるターミナル",
       "terminalSystem": "システムデフォルト",
+      "terminalSystemWindowsCompatibility": "システム互換（PowerShell）",
       "themeLight": "ライト",
       "themeDark": "ダーク",
       "themeSystem": "システム設定に従う",
       "uiScale": "UIスケール",
-      "uiScaleDesc": "インターフェースの表示倍率を調整",
+      "uiScaleDesc": "画面の拡大率を調整（⌘+/⌘- または Ctrl+/Ctrl-、⌘0/Ctrl+0 でリセット）",
       "accountManagement": "アカウント管理",
       "autoRefresh": "Antigravity IDE 自動更新クォータ",
       "codexAutoRefresh": "Codex 自動更新クォータ",
@@ -608,6 +700,8 @@
       "closeBehaviorQuit": "アプリを終了",
       "startupMinimized": "最小化して起動",
       "startupMinimizedDesc": "アプリ起動後にメインウィンドウを自動で最小化し、Dock、タスクバー、トレイから復元できます",
+      "rememberMainWindowState": "メインウィンドウの位置とサイズを記憶",
+      "rememberMainWindowStateDesc": "再起動時やトレイから開き直す際に位置とサイズを復元します。初期設定はオフです",
       "minimizeBehavior": "ウィンドウ最小化時の動作（macOSのみ）",
       "minimizeBehaviorDesc": "ウィンドウを最小化した際にDockとメニューバーの両方に残すか、メニューバーのみにするかを選択",
       "minimizeBehaviorDockAndTray": "Dock + メニューバー（推奨・既定）",
@@ -647,6 +741,11 @@
       "codexPathReset": "既定に戻す",
       "codexSyncWsl": "Codex を WSL に同期",
       "codexSyncWslDesc": "既定の Codex アカウントを切り替えた後、auth.json と config.toml も WSL 内の Codex ディレクトリへ書き込みます。",
+      "codexAppUiInjection": "API サービスのクォータ",
+      "codexAppUiInjectionDesc": "Codex インスタンスの再起動後、入力欄の下に Cockpit Tools API サービスのアカウント数、週間クォータ、5 時間クォータを表示します。Cockpit Tools をバックグラウンドで起動したままにしてください。完全に終了した場合やネットワークを利用できない場合は更新されません。",
+      "codexAppUiInjectionPoolLabel": "アカウント",
+      "codexAppUiInjectionWeeklyLabel": "週",
+      "codexAppUiInjectionFiveHourLabel": "5時間",
       "codexWslConfigDir": "WSL Codex ディレクトリ",
       "codexWslConfigDirDesc": "WSL 内の .codex ディレクトリを入力します。\\\\wsl.localhost\\ のパスに対応しています。",
       "codexWslConfigDirPlaceholder": "例: \\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\.codex",
@@ -661,13 +760,28 @@
       "commonTitle": "共通",
       "antigravitySettingsTitle": "Antigravity IDE 設定",
       "codexSettingsTitle": "Codex 設定",
+      "codexOAuthAppVersion": "OAuth クライアントバージョン",
+      "codexOAuthAppVersionDesc": "空欄の場合はリモート既定値 {{version}} を使用します。入力すると OAuth 認証 URL のバージョン項目だけを上書きします。",
+      "codexOAuthAppVersionPlaceholder": "空欄で {{version}} を使用",
+      "codexClientPolicyTitle": "Codex app-server クライアントをグローバルに許可",
+      "codexClientPolicyDesc": "有効にすると、公式クライアント限定の OAuth アカウントでも第三者の app-server クライアントを受け入れます。",
+      "codexAccountPolicies": "Codex OAuth アカウントポリシー",
+      "codexAccountPoliciesDesc": "標準の OpenAI OAuth アカウントのみ対象です。値はローカルに保存され、ローカル API サービスへ同期されます。",
+      "codexNoOauthAccounts": "設定可能な OpenAI OAuth アカウントはありません",
+      "codexOfficialOnly": "公式クライアントのみ",
+      "codexAppServer": "app-server を許可",
+      "codexFingerprintMode": "フィンガープリント収束",
+      "codexFingerprintOff": "オフ",
+      "codexFingerprintDevice": "デバイスのみ",
+      "codexFingerprintSession": "デバイス + セッション",
+      "codexFingerprintFull": "完全収束",
       "githubCopilotSettingsTitle": "GitHub Copilot 設定",
       "ghcpAutoRefresh": "GitHub Copilot クォータの自動更新",
       "ghcpAutoRefreshDesc": "バックグラウンド更新頻度",
-      "windsurfSettingsTitle": "Windsurf 設定",
-      "windsurfAutoRefresh": "Windsurf 自動更新クォータ",
+      "windsurfSettingsTitle": "Devin 設定",
+      "windsurfAutoRefresh": "Devin 自動更新クォータ",
       "windsurfAutoRefreshDesc": "バックグラウンドでの更新頻度",
-      "windsurfAppPath": "Windsurf アプリのパス",
+      "windsurfAppPath": "Devin アプリのパス",
       "windsurfAppPathDesc": "空欄の場合は既定のパスを使用します",
       "windsurfAppPathPlaceholder": "既定のパス",
       "windsurfPathSelect": "選択",
@@ -693,6 +807,10 @@
       "codebuddySettingsTitle": "CodeBuddy 設定",
       "codebuddyAutoRefresh": "CodeBuddy クォータ自動更新",
       "codebuddyAutoRefreshDesc": "バックグラウンドでの自動更新頻度",
+      "codebuddyShareSessionsOnSwitch": "切替時にローカル会話を共有",
+      "codebuddyShareSessionsOnSwitchDesc": "この端末の CodeBuddy アカウント間でローカル会話と復元状態を統合します。会話内容はローカルでのみ読み書きされ、アップロードされません。",
+      "workbuddyShareSessionsOnSwitch": "切替時にローカル会話を共有",
+      "workbuddyShareSessionsOnSwitchDesc": "この端末の WorkBuddy アカウント間でローカル会話と復元状態を統合します。会話内容はローカルでのみ読み書きされ、アップロードされません。",
       "codebuddyAppPath": "CodeBuddy 起動パス",
       "codebuddyAppPathDesc": "空欄の場合はデフォルトパスを使用します",
       "codebuddyAppPathPlaceholder": "デフォルトパス",
@@ -715,6 +833,11 @@
       "openclawAuthOverwriteDesc": "オフの場合は Codex のみ切り替え、OpenClaw は現在のログイン状態を維持します",
       "ghcpOpencodeAuthOverwrite": "GitHub Copilot 切り替え時に OpenCode のログインを上書きする",
       "ghcpOpencodeRestart": "GitHub Copilot 切替時に OpenCode を自動再起動",
+      "grokOpencodeAuthOverwrite": "Grok 切り替え時に OpenCode のログインを上書きする",
+      "grokOpencodeAuthOverwriteDesc": "オフの場合は Grok のみ切り替え、OpenCode は現在のログイン状態を維持します",
+      "grokOpencodeRestart": "Grok 切替時に OpenCode を自動再起動",
+      "grokOpencodeRestartDesc": "OpenCode のログイン情報を上書きしたあと、すぐに反映するよう再起動します",
+      "grokOpencodeRestartRequiresOverwrite": "先に「Grok 切り替え時に OpenCode のログインを上書きする」を有効にしてください",
       "ghcpLaunchOnSwitch": "GitHub Copilot 切替時に GitHub Copilot App を自動起動",
       "zedAutoRefresh": "Zed クォータの自動更新",
       "zedAutoRefreshDesc": "バックグラウンド更新頻度",
@@ -734,7 +857,7 @@
       "antigravityDualSwitchNoRestart": "再起動なしデュアル切替",
       "antigravityDualSwitchNoRestartDesc": "切替時にローカルのアカウントデータ書き込みと拡張機能のシームレス切替を1つのフローで実行し、Antigravity IDE を再起動しません。",
       "appAutoLaunch": "ログイン時に Cockpit Tools を起動",
-      "appAutoLaunchDesc": "システムログイン後にアプリを自動起動します",
+      "appAutoLaunchDesc": "サインイン後に自動起動。Windows 起動時に PowerShell エラーが出る場合はオフにしてください。",
       "startupWakeupDisabled": "無効",
       "startupWakeupImmediate": "すぐに起動",
       "startupWakeupDelayed": "遅延して起動",
@@ -807,7 +930,50 @@
       "platformAutoRefresh": "{{platform}} クォータ自動更新",
       "traeSoloAppPath": "TRAE SOLO 起動パス",
       "traeCnAppPath": "Trae CN 起動パス",
-      "traeSoloCnAppPath": "TRAE SOLO CN 起動パス"
+      "traeSoloCnAppPath": "TRAE SOLO CN 起動パス",
+      "reducedMotion": "アニメ軽減",
+      "reducedMotionDesc": "フェード・モーダル遷移・影・ぼかし・スムーズスクロールを抑え、必要な読み込み表示のみ残します",
+      "autoImportFromLocal": "ローカルアカウント自動取り込み",
+      "autoImportFromLocalDesc": "有効にすると本機クライアントのログインを即時取り込み、以降は公式クライアントのログイン変更時に自動取り込みます。初回はキーチェーン許可が必要な場合があります。",
+      "autoImportFromLocalScanning": "ローカルアカウントをスキャン中…いつでもオフにできます",
+      "autoImportFromLocalScanDone": "完了：{{scanned}} 件検出、{{imported}} 件取り込み",
+      "autoImportFromLocalScanEmpty": "完了：取り込めるログインがありません",
+      "autoImportFromLocalScanPartial": "完了：一部失敗。アカウントページから手動取り込みできます",
+      "autoImportFromLocalScanFailed": "スキャン失敗：{{error}}",
+      "autoImportFromLocalScanCancelled": "オフにしました。進行中のスキャン結果は無視されます",
+      "startupPage": "起動ページ",
+      "startupPageDesc": "コールドスタート時に開くページ。「前回を記憶」で前回のページを復元します。",
+      "startupPageLast": "前回を記憶",
+      "startupPageCodexApi": "Codex API サービス",
+      "hermesAuthOverwrite": "Codex 切替時に Hermes を同期",
+      "hermesAuthOverwriteDesc": "OAuth のみ：切替後に ~/.hermes/auth.json の openai-codex 資格情報を更新（既定オフ）",
+      "themeColor": "カラーパック",
+      "themeColorDesc": "明暗テーマに配色パックを重ねます",
+      "themeColorDefault": "標準",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "外部通信を許可",
+      "externalNetworkDesc": "オフ時は WebDAV・OpenRouter 使用量・お知らせ・自動更新チェックを遮断します（ローカル機能は継続）。",
+      "webdavAllowedDomains": "WebDAV ドメイン許可リスト",
+      "webdavAllowedDomainsDesc": "カンマ区切り。空なら制限なし",
+      "claudeQuotaDisplayRemaining": "Claude 残量%表示",
+      "claudeQuotaDisplayRemainingDesc": "既定は使用済み%。オンで残量%。自動切替と警告は使用率基準のままです。",
+      "menuBarQuota": "メニューバーにリアルタイム枠を表示",
+      "menuBarQuotaDesc": "有効にすると、選択したプラットフォームの現在アカウントの残枠をメニューバーアイコン横に表示。プラットフォーム等はダイアログで設定",
+      "menuBarQuotaEnabledDesc": "有効 · {{platform}} · そのプラットフォームの現在アカウント残枠（複数は最小）",
+      "menuBarQuotaConfigure": "設定",
+      "menuBarQuotaModalTitle": "メニューバー枠",
+      "menuBarQuotaModalDesc": "メニューバー枠専用の設定です。選択プラットフォームの現在アカウントに追従します。Codex が API サービスのときは「API + プール残%」、API Key アカウントは「API + 残額」、通常はメール先頭と残%（複数は最小、低赤・中橙・高緑）。",
+      "menuBarQuotaPlatform": "枠のアカウントプラットフォーム",
+      "menuBarQuotaPlatformDesc": "そのプラットフォームで使用中のアカウントに追従し、更新や切替後に自動反映",
+      "menuBarAccountPrefix": "メール先頭4文字を表示",
+      "menuBarAccountPrefixDesc": "通常アカウントのみ：オフでメール先頭を非表示。Codex API サービス / API Key は API ラベルを維持",
+      "menuBarQuotaConfirmEnable": "有効にする",
+      "codexHideRelayQuota": "中継クォータを隠す",
+      "codexHideRelayQuotaDesc": "オンにすると、Codex アカウント一覧で中継 / New API 系の残高パネルを非表示にし、表示の重なりを減らします。"
     },
     "network": {
       "apiTitle": "反重力コックピット API",
@@ -872,6 +1038,7 @@
       "releaseHistoryLoading": "リリースノートを読み込んでいます...",
       "releaseHistoryEmpty": "リリースノートはまだありません",
       "releaseHistoryLoadFailed": "ロードに失敗しました: {{error}}",
+      "releaseHistorySectionHighlights": "重要な更新",
       "releaseHistorySectionAdded": "追加した",
       "releaseHistorySectionChanged": "変更されました",
       "releaseHistorySectionFixed": "修理済み",
@@ -902,6 +1069,54 @@
         "retentionUnit": "日",
         "directoryTitle": "バックアップフォルダー",
         "directoryDesc": "バックアップは常にプロジェクトの backups フォルダーに保存されます。",
+        "changeDirectory": "フォルダーを変更",
+        "migrating": "移行中...",
+        "migrationConfirm": "既存のバックアップを {{oldPath}} から {{newPath}} に移行しますか？\n\nキャンセルすると古いファイルを移行せずにフォルダーだけ変更します。",
+        "usageTitle": "バックアップ使用量",
+        "usageDesc": "定期バックアップとプラットフォーム動作スナップショットの使用量を表示します。",
+        "usageEmpty": "ローカルバックアップはありません。",
+        "cleanupBehavior": "動作バックアップを整理",
+        "behaviorCleanupConfirm": "古い動作バックアップを整理しますか？プラットフォームとインスタンスごとに最新のみ残し、定期 JSON/ZIP は削除しません。",
+        "sources": {
+          "scheduled": "定期 JSON/ZIP",
+          "behavior": "動作スナップショット",
+          "claude": "Claude",
+          "codex": "Codex",
+          "workbuddy": "WorkBuddy",
+          "codebuddy": "CodeBuddy",
+          "trae": "Trae",
+          "other": "その他"
+        },
+        "migrationConfirmTitle": "バックアップ先を変更",
+        "migrationConfirmDesc": "既存のバックアップを確認しました。移行して旧フォルダーの容量を解放するか、今後の保存先だけを変更できます。",
+        "migrationOldPath": "旧フォルダー",
+        "migrationNewPath": "新フォルダー",
+        "migrationTotalSize": "移行する容量",
+        "migrationTotalFiles": "移行するファイル",
+        "migrationSafetyNote": "一時領域へコピーして検証した後に保存先を切り替え、旧バックアップを削除します。",
+        "switchOnly": "保存先のみ変更",
+        "migrateAndSwitch": "移行して変更",
+        "migrationProgress": {
+          "title": "バックアップ先を移行",
+          "filesUnit": "ファイル",
+          "currentSource": "現在の対象",
+          "completedSummary": "{{count}} ファイル（{{size}}）を移行し、新しい保存先へ切り替えました。",
+          "switchOnlyCompleted": "今後のバックアップは {{path}} に保存されます。既存のバックアップは移動していません。",
+          "cleanupPartial": "新しい保存先は有効ですが、次の旧フォルダーを削除できませんでした。後で手動で削除してください：",
+          "cancelledDesc": "移行をキャンセルしました。元の保存先は変更されず、一時ファイルは削除されました。",
+          "cancelling": "キャンセル中...",
+          "cancelAction": "移行をキャンセル",
+          "finishing": "完了処理中...",
+          "phases": {
+            "scanning": "バックアップを確認中...",
+            "copying": "バックアップをコピー中...",
+            "verifying": "コピー結果を検証中...",
+            "switching": "保存先を切り替え中...",
+            "cleaning": "旧バックアップを削除中...",
+            "completed": "移行が完了しました",
+            "cancelled": "移行をキャンセルしました"
+          }
+        },
         "openFolder": "フォルダーを開く",
         "listTitle": "バックアップ一覧",
         "listDesc": "バックアップを直接インポートするか、古いファイルを削除できます。",
@@ -928,7 +1143,15 @@
           "cleanupFailed": "期限切れバックアップの整理に失敗しました: {{error}}",
           "openFolderFailed": "バックアップフォルダーを開けませんでした: {{error}}",
           "downloadSuccess": "バックアップを {{path}} にダウンロードしました",
-          "downloadFailed": "バックアップのダウンロードに失敗しました: {{error}}"
+          "downloadFailed": "バックアップのダウンロードに失敗しました: {{error}}",
+          "migrating": "バックアップフォルダーを移行中...",
+          "migrationDone": "{{count}} 個のファイルを {{path}} に移行しました",
+          "directoryChanged": "バックアップフォルダーを {{path}} に変更しました",
+          "directoryChangeFailed": "バックアップフォルダーを変更できません: {{error}}",
+          "behaviorCleaning": "古い動作バックアップを整理中...",
+          "behaviorCleanupDone": "{{count}} 個を整理し {{size}} 解放しました",
+          "behaviorCleanupFailed": "動作バックアップを整理できません: {{error}}",
+          "scanningMigration": "移行するバックアップを確認中..."
         },
         "errors": {
           "invalidRetention": "保持日数は 1 日から 365 日の間で指定してください"
@@ -1036,6 +1259,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "API キーをアプリデータにローカル保存します。外連 ON で OpenRouter 使用量を更新できます。完全なプラットフォームではありません。",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "ラベル",
+      "empty": "Key がありません",
+      "added": "追加しました",
+      "deleted": "削除しました",
+      "refreshed": "使用量を更新しました",
+      "usage": "使用量",
+      "tierOther": "その他"
     }
   },
   "appPath": {
@@ -1043,7 +1279,7 @@
       "title": "アプリのパスが見つかりません",
       "desc": "{{app}} のアプリパスが見つかりません。続行するには今すぐ設定してください。",
       "action": "今すぐ設定",
-      "codexLaunchHint": "オフにすると、アカウント切替とログイン上書きは引き続き実行されますが、Codex アプリは起動されず、この起動パスの案内も再表示されません。",
+      "codexLaunchHint": "アカウント切替は完了しています。起動するにはパスを設定してください。切替後に起動しない場合は、設定で「Codex 切替時に Codex App を自動起動」をオフにしてください。",
       "claudeMultiInstanceRequiresExe": "Claude の複数インスタンスには実際の Claude.exe パスが必要です。Microsoft Store ターゲットは既定のデスクトップ用のみです。",
       "scanApps": "アプリをスキャン",
       "scanRoots": "Sukyan hani",
@@ -1150,7 +1386,69 @@
         "tooMany": "タグは最大{{max}}件まで追加できます"
       },
       "notesLabel": "メモ",
-      "notesPlaceholder": "メモを入力。空欄でクリア"
+      "notesPlaceholder": "メモを入力。空欄でクリア",
+      "confirmGlobalDelete": "タグ「{{targetTag}}」をすべてのアカウントから削除しますか？この操作は元に戻せません。",
+      "globalDeleteHint": "このタグを全体削除",
+      "globalDeleteFailed": "タグの全体削除に失敗しました",
+      "globalRenameHint": "このタグを全体で名前変更"
+    },
+    "accountNote": {
+      "title": "アカウントメモ",
+      "desc": "{{account}} にパスワード、2FA、メールURL、電話番号、その他メモを追加します。",
+      "label": "アカウントメモ",
+      "placeholder": "受け渡しメモ、復旧メール、アカウント詳細など",
+      "saved": "アカウントメモを保存しました",
+      "saveFailed": "アカウントメモの保存に失敗しました: {{error}}",
+      "emptyTitle": "アカウントメモを追加",
+      "workspaceIdLabel": "ChatGPT ワークスペース ID",
+      "workspaceIdPlaceholder": "Team / Workspace の UUID を入力",
+      "workspaceIdHint": "at-* 個人アクセストークン専用です。API サービスが ChatGPT-Account-Id として送信します。",
+      "fingerprintModeLabel": "デバイス指紋モード",
+      "fingerprintModeHint": "OAuth のみ。既定はセッション。アカウントごとにインストール／セッションを分離し、ワークスペースを書き換えて同一端末の複数アカウントの紐付けを防ぎます。",
+      "fingerprintModeSession": "セッション（推奨）",
+      "fingerprintModeDevice": "デバイス",
+      "fingerprintModeFull": "完全",
+      "fingerprintModeOff": "オフ",
+      "twoFactorSecretLabel": "2FA シークレット",
+      "twoFactorSecretShort": "2FA",
+      "twoFactorSecretPlaceholder": "Base32 secret または otpauth:// URI",
+      "twoFactorSecretInvalid": "2FA シークレットが無効です。Base32 secret または otpauth:// URI を入力してください。",
+      "currentOtp": "現在のコード",
+      "otpShort": "コード",
+      "otpRemaining": "{{seconds}}秒",
+      "passwordLabel": "パスワード",
+      "passwordShort": "パスワード",
+      "passwordPlaceholder": "ログイン用または一時パスワード",
+      "phoneNumberLabel": "電話番号",
+      "phoneShort": "電話",
+      "phoneNumberPlaceholder": "紐付け済み電話番号",
+      "mailUrlLabel": "メールURL",
+      "mailUrlPlaceholder": "開けるメール確認ページのURLを入力",
+      "mailPreviewRefresh": "メール更新",
+      "mailPreviewOpen": "ブラウザで開く",
+      "mailPreviewLoading": "メールを読み込み中...",
+      "mailPreviewNoCode": "連続6桁のコードが見つかりません",
+      "mailPreviewFetchFailed": "メールの読み込みに失敗しました: {{error}}",
+      "mailPreviewUrlRequired": "メールURLを入力してください",
+      "mailPreviewUrlInvalid": "メールURLが無効です。http:// または https:// で始まる完全なURLを入力してください。",
+      "mailPreviewUnsupportedProtocol": "メールURLは http または https のみ対応しています。",
+      "mailPreviewHttpFailed": "メールURLのリクエストに失敗しました: HTTP {{status}}",
+      "mailPreviewCode": "最新のメール認証コード",
+      "mailPreviewStatusInitial": "{{time}} に取得",
+      "mailPreviewStatusChanged": "新しいコード · {{time}}",
+      "mailPreviewStatusUnchanged": "変更なし · {{time}}",
+      "mailPreviewTruncated": "内容を切り詰めました",
+      "mailOpenFailed": "メールURLを開けませんでした: {{error}}",
+      "otherNoteLabel": "その他メモ",
+      "otherNoteShort": "メモ",
+      "exportSensitiveNotice": "エクスポートには 2FA シークレット、パスワード、電話番号、メールURL が含まれます。信頼できる場所にのみ保存してください。",
+      "exportSensitiveIncluded": "機密メモを含める",
+      "exportSensitiveExcluded": "機密メモを除外",
+      "exportSensitiveToggleHint": "エクスポートする JSON に 2FA シークレット、パスワード、電話番号、メールURL を含めるかを切り替えます。",
+      "show": "表示",
+      "hide": "非表示",
+      "short": "メモ",
+      "addShort": "追加"
     },
     "groupByTag": "タグでグループ化",
     "untagged": "タグなし",
@@ -1221,7 +1519,9 @@
         "renameFailed": "グループの名前変更に失敗しました：{{error}}",
         "deleteFailed": "グループの削除に失敗しました：{{error}}",
         "addFailed": "グループへの追加に失敗しました：{{error}}",
-        "createAndAddFailed": "グループの作成と追加に失敗しました：{{error}}"
+        "createAndAddFailed": "グループの作成と追加に失敗しました：{{error}}",
+        "quotaRefreshFailed": "クォータ更新設定を変更できませんでした：{{error}}",
+        "notFound": "グループが見つかりません"
       },
       "addAccounts": "アカウントを追加",
       "editTitle": "グループを編集",
@@ -1229,7 +1529,14 @@
       "currentGroupLabel": "現在のグループ",
       "accountPickerEmpty": "条件に一致するアカウントはありません",
       "filterHint": "フィルター対象に {{count}} 件のグループを選択中",
-      "filterToggle": "このグループで絞り込む"
+      "filterToggle": "このグループで絞り込む",
+      "quotaRefresh": "クォータ更新",
+      "quotaRefreshOffBadge": "更新しない",
+      "quotaRefreshOffHint": "このグループは更新されません。自動更新と全件更新ではグループ内のアカウントをスキップします",
+      "refreshForceHint": "ポリシーが「プラットフォームを継承」以外でも、このグループは手動で更新できます",
+      "quotaRefreshInherit": "プラットフォームを継承",
+      "quotaRefreshPolicyHint": "グループのクォータ更新設定が最優先されます：プラットフォームを継承、独自の間隔、または更新しない",
+      "quotaRefreshMinutesBadge": "{{count}}分"
     },
     "switchHistory": {
       "title": "切替履歴",
@@ -1658,7 +1965,79 @@
     "other_group": "その他のモデル"
   },
   "codex": {
+    "oauthPolicy": {
+      "globalTitle": "サードパーティの app-server を許可",
+      "globalDescription": "有効にすると現在のポリシー概要が表示されます。「管理」から Codex OAuth アカウントを一括または個別に設定できます。",
+      "manage": "設定",
+      "title": "Codex OAuth アカウントポリシー",
+      "description": "選択したアカウントに適用するか、1 つのアカウントを直接変更します。",
+      "noAccounts": "設定可能な Codex OAuth アカウントはありません",
+      "selectAll": "すべて選択",
+      "selectedCount": "{{count}} アカウントを選択中",
+      "selectAccounts": "アカウントを 1 つ以上選択してください。",
+      "selectBatchPolicy": "適用するポリシーを 1 つ以上選択してください。",
+      "officialOnly": "公式クライアントのみ",
+      "officialOnlyShort": "公式のみ",
+      "officialOnlyUnchanged": "公式クライアント：変更なし",
+      "officialOnlyOn": "公式クライアント：オン",
+      "officialOnlyOff": "公式クライアント：オフ",
+      "appServer": "app-server を許可",
+      "appServerShort": "app-serverを許可",
+      "appServerUnchanged": "app-server：変更なし",
+      "appServerOn": "app-server：オン",
+      "appServerOff": "app-server：オフ",
+      "fingerprint": "デバイスフィンガープリント",
+      "fingerprintMode": "フィンガープリントモード",
+      "fingerprintUnchanged": "フィンガープリント：変更なし",
+      "fingerprintOn": "フィンガープリント：モード設定",
+      "fingerprintOff": "フィンガープリント：オフ",
+      "applyBatch": "選択項目に適用"
+    },
     "title": "Codex アカウント管理",
+    "experimentalModelCatalog": {
+      "title": "表示モデル",
+      "description": "表示モデル、推論強度、コンテキストウィンドウ、圧縮しきい値を一元管理します。",
+      "enabledHint": "現在の表示モデル一覧を使用します。Codex を再起動してください。",
+      "models": {
+        "title": "モデル一覧",
+        "model": "モデル",
+        "default": "既定モデル",
+        "add": "モデルを追加",
+        "remove": "モデルを削除",
+        "setDefault": "既定に設定",
+        "modelId": "モデル ID",
+        "displayName": "表示名",
+        "reasoning": "推論強度",
+        "followOfficial": "公式に従う",
+        "operation": "操作",
+        "manage": "管理",
+        "inheritHint": "公式モデルは能力フィールドを維持し、カスタムモデルは汎用テンプレートを使用します。表示モデルは追加・削除できます。",
+        "validation": {
+          "required": "モデルを少なくとも 1 つ残してください。",
+          "modelId": "モデル ID には英字、数字、ピリオド、ハイフン、アンダースコア、スラッシュ、コロンのみ使用できます。",
+          "displayName": "100 文字以内の表示名を入力してください。",
+          "duplicate": "モデル ID は重複できません。",
+          "reasoningEffort": "推論強度の選択が無効です。",
+          "reserved": "このモデル ID は公式モデルと重複しています。別の ID を使用してください。",
+          "contextPair": "コンテキストと圧縮しきい値は両方入力してください。",
+          "contextWindow": "コンテキストは 0 より大きい整数にしてください。",
+          "autoCompact": "圧縮しきい値は 0 より大きい整数にしてください。",
+          "autoCompactRange": "圧縮しきい値はコンテキストより小さくしてください。"
+        },
+        "contextConfig": "コンテキストと圧縮",
+        "contextDefault": "モデルに従う",
+        "contextDefaultShort": "既定",
+        "contextCustomShort": "カスタム",
+        "contextWindow": "コンテキスト",
+        "autoCompactLimit": "圧縮しきい値"
+      },
+      "unavailable": {
+        "cacheMissing": "models_cache.json が見つかりません。",
+        "modelNotCached": "ローカルモデルカタログを読み込めません。",
+        "catalogConflict": "別の model_catalog_json がすでに設定されているため、上書きしません。",
+        "cacheInvalid": "models_cache.json を読み取れないか、形式が無効です。"
+      }
+    },
     "newApi": {
       "quota": {
         "available": "残高",
@@ -1712,6 +2091,34 @@
     "refreshFailed": "クォータの更新に失敗しました: {{error}}",
     "refreshAllSuccess": "更新完了、{{count}} アカウント成功",
     "refreshAllPartialFailed": "更新完了、{{success}} / {{total}} アカウント成功、一部失敗",
+    "launchPreview": {
+      "title": "Codex 起動プレビュー",
+      "description": "先に設定と確認を行い、「切替」または「起動」を選んだ後にだけクライアントを変更します。",
+      "notApplied": "未適用",
+      "safeHint": "この画面を開くだけでは Token の更新、クライアントの終了、ログイン情報の書き込みは行いません。",
+      "modelConfigHint": "コンテキストウィンドウと圧縮しきい値は、モデルごとに Cockpit 管理モデルカタログへ書き込みます。",
+      "enablePerModelHint": "モデル別設定には可視モデルが必要です。保存または起動するまでは下書きだけを変更します。",
+      "enablePerModel": "モデル別設定を有効化",
+      "unsavedConfig": "モデル設定に未保存の変更があります。切替または起動の前に保存されます。",
+      "switchAndStart": "切り替えて起動",
+      "startInstance": "起動を続行",
+      "modelConfigEnabled": "モデルごとの設定が有効です",
+      "modelConfigDisabled": "モデルごとの設定はまだ有効になっていません",
+      "manageModelConfig": "モデル設定を管理",
+      "modelConfigTitle": "Codex モデル設定",
+      "modelConfigDialogDescription": "モデルごとに表示モデル、推論レベル、コンテキストウィンドウ、圧縮しきい値を設定します。",
+      "applyModelConfig": "設定を適用",
+      "defaultModel": "デフォルトモデル",
+      "repairCompleted": "セッション表示を修復しました",
+      "forceRefreshTitle": "Tokenを強制更新",
+      "forceRefreshReady": "OAuth Token は手動で更新できます",
+      "forceRefreshDescription": "refresh_token を使って新しい access_token と id_token を取得します。現在の refresh token がローテーションされる場合があります。",
+      "forceRefreshUnavailable": "このアカウント種別では利用できません",
+      "forceRefreshAction": "今すぐ更新",
+      "forceRefreshRunning": "Tokenを更新中…",
+      "forceRefreshSuccess": "Tokenを更新しました",
+      "forceRefreshRetry": "再検出"
+    },
     "switch": "切替",
     "switched": "{{email}} に切り替えました",
     "switchFailed": "切り替え失敗: {{error}}",
@@ -1724,6 +2131,32 @@
       "staleAccount": "このアカウントはローカルのアカウント保存先に存在しません。アカウント一覧を更新しました。この Codex アカウントを再インポートするか、再度サインインしてください。",
       "unsupportedCountryRegion": "現在のネットワーク地域では Codex 認証を更新できません。OpenAI 認証サービスがこのネットワーク出口を拒否しました。対応地域に切り替えてから再試行してください。"
     },
+    "switchAuth": {
+      "apiOnlyTitle": "クライアントのログインが必要",
+      "reauthorizeTitle": "Codex の認証期限切れ",
+      "apiOnlyDescription": "現在のクライアントがログインページに移動しました。クライアントを復元するには再認証してください。しばらくは API サービスを引き続き利用できます。",
+      "observationStatus": "ログインページへのリダイレクトを検出しました",
+      "observationTime": "最新の確認：{{time}}",
+      "loginRedirectTime": "ログインページへの最新のリダイレクト：{{time}}",
+      "observationInstance": "確認したインスタンス：{{instance}}",
+      "launchTime": "インスタンスの起動時刻：{{time}}",
+      "reauthorizeDescription": "ログイン情報を更新できず、access_token も API サービスで利用できません。続行するには再認証してください。",
+      "idTokenUnavailable": "クライアント ID 情報の期限が切れ、自動更新でも有効な id_token を取得できませんでした。",
+      "reasonLabel": "理由",
+      "accessTokenExpiry": "API の一時利用期限：{{time}}",
+      "apiServiceAddFailed": "API サービスへのアカウント追加に失敗しました：{{error}}",
+      "switchingAfterReauth": "認証が更新されました。アカウント切替を続行しています...",
+      "switchAfterReauthFailed": "認証は更新されましたが、アカウント切替に失敗しました：{{error}}",
+      "reauthGenerationMissing": "今回の認証情報のバージョンを確認できませんでした。もう一度アカウントを切り替えてください。",
+      "reauthorizedAndSwitched": "再認証して切替完了",
+      "startingInstanceAfterReauth": "認証情報を更新しました。インスタンスを再起動しています...",
+      "startInstanceAfterReauthFailed": "認証情報は更新されましたが、インスタンスを起動できませんでした：{{error}}",
+      "reauthorizedAndStartedInstance": "再認証してインスタンスを起動しました",
+      "apiOnlyBadge": "再認証必要",
+      "clearClientAuth": "警告をクリア",
+      "clearClientAuthSuccess": "クライアントの警告をクリアしました",
+      "clearClientAuthFailed": "クライアントの警告をクリアできませんでした：{{error}}"
+    },
     "current": "現在",
     "empty": {
       "description": "「アカウントを追加」から Codex アカウントを管理できます"
@@ -1732,7 +2165,8 @@
       "title": "Codex アカウントを追加",
       "oauth": "OAuth 認証",
       "token": "JSON インポート",
-      "local": "ローカルインポート"
+      "local": "ローカルインポート",
+      "accessToken": "アクセストークン"
     },
     "oauth": {
       "desc": "下のボタンをクリックしてブラウザで OpenAI 認可を完了してください",
@@ -1762,11 +2196,29 @@
       "formatRefreshOnlyLabel": "refresh_token のみ",
       "formatBatchLabel": "一括例"
     },
+    "agentIdentityRegistration": {
+      "apiOnlyActionError": "Agent Identity アカウントは API サービス専用のため、通常の切り替えや直接起動はできません。",
+      "oauthBindingUnsupported": "Agent Identity アカウントは API サービス専用で、OAuth 連携アカウントとしては使用できません。"
+    },
+    "webSessionImport": {
+      "noticeTitle": "Web Session インポートの注意",
+      "noticeMessage": "{{count}} 件の Web Session を検出。実利用非対応、枠確認のみ。",
+      "noticeQuotaOnly": "枠確認のみ。公式クライアント/CLI 起動や切替不可。",
+      "noticeNoApi": "API サービスや OAuth 連携には使えません。",
+      "noticeConfirm": "確認して続行",
+      "actionBlocked": "Web Session は枠確認のみで切替/起動できません。",
+      "apiIneligible": "Web Session は枠確認のみ、API 不可",
+      "oauthBindingUnsupported": "Web Session は OAuth 連携に使えません。"
+    },
     "exportFormat": {
       "label": "エクスポート形式",
       "cockpitTools": "Cockpit Tools​",
+      "authJson": "公式 auth.json",
       "sub2api": "sub2api 形式",
       "cpa": "cpa 形式",
+      "agentIdentityCpaUnsupported": "Agent Identity アカウントは cpa 形式ではエクスポートできません。Cockpit Tools または sub2api を使用してください。",
+      "agentIdentityPrivateKeyNotice": "このエクスポートには、別のデバイスでアカウントを復元できる Agent Identity 秘密鍵が含まれます。パスワードと同様に厳重に保管してください。",
+      "buildFailed": "エクスポートを作成できません。選択したアカウントに未対応の種類または不完全な認証情報が含まれています。",
       "downloadAll": "すべてダウンロード",
       "cpaCardTitle": "アカウント {{index}}",
       "savedFolder": "保存フォルダー",
@@ -1816,7 +2268,11 @@
         "freeNotice": "無料アカウントはまだサポートされていません。無料アカウントは選択できません。",
         "freeUnsupported": "無料アカウントはまだサポートされていません",
         "restrictFreeToggle": "Freeアカウントを制限",
+        "sessionAffinityConfirmTitle": "セッション固定を有効にしますか？",
+        "sessionAffinityDescription": "有効にすると、同じ会話では可能な限り同じアカウントを使い続けます。利用できない場合はルーティングに従って切り替わり、有効期限後は再選択されます。",
         "chatApiKeyUnsupported": "Chat Completionsは非対応",
+        "deepseekUnsupported": "DeepSeekは未対応",
+        "pendingOauthUnsupported": "未認可は追加不可",
         "freeNoticeRestricted": "Freeアカウントは制限中です。選択するにはこの設定をオフにしてください。",
         "freeNoticeUnstable": "Freeアカウントのプロキシは不安定な場合があります。注意して使用してください。",
         "restrictFreeDisableConfirmTitle": "Freeアカウントを許可",
@@ -1844,6 +2300,10 @@
       "testConnectFailed": "{{url}} に接続できません。API サービスが起動していること、ポートが変更されていないこと、ブロックされていないことを確認してください。",
       "testAuthFailed": "サービスには到達しましたが、認証に失敗しました: {{detail}}。API サービスキーまたはアカウントのログイン状態を確認してください。",
       "testServiceUnavailable": "サービスには到達しましたが、現在利用できません: {{detail}}。サービスが有効か、アカウント集合が空でないか、アカウントが利用可能かを確認してください。",
+      "gatewayErrors": {
+        "authUnavailable": "現在、ルーティング可能なアカウントがありません。冷却中、認証失敗、またはクォータ制限の可能性があります。Cockpit Tools の API サービスで状態を確認してください。",
+        "authNotFound": "利用可能なアカウントがアカウントプールに設定されていません。Cockpit Tools の API サービスで追加または有効化してください。"
+      },
       "testRateLimited": "サービスには到達しましたが、上流でレート制限またはクォータ不足です: {{detail}}。",
       "testHttpFailed": "サービスには到達しましたが、リクエストは HTTP {{status}} を返しました: {{detail}}。",
       "activateAction": "API サービスを起動",
@@ -1863,11 +2323,18 @@
       "summaryMeta": "{{count}} 件のアカウント · {{scope}}",
       "summaryMetaUnconfigured": "未設定 · {{scope}}",
       "memberTitle": "集合メンバー",
+      "imagePolicy": { "label": "画像ポリシー", "inherit": "画像：自動", "enabled": "画像：有効", "disabled": "画像：無効" },
+      "memberPriorityLabel": "優先度",
+      "memberPriorityLowest": "最低",
+      "memberPriorityNormal": "通常",
+      "memberPriorityHighest": "最高",
+      "memberPriorityDesc": "最高は優先使用、通常は現在のルールで振り分け、最低は他のアカウントが利用できない場合のみ使用します。",
       "stats": {
         "requests": "リクエスト",
         "requestsDetail": "成功 {{success}} / 失敗 {{failed}} / 取消 {{canceled}} / 上流失敗 {{upstreamFailed}} / 未完了 {{incomplete}}",
         "tokens": "トークン",
         "tokensDetail": "入力 {{input}} / 出力 {{output}}",
+        "cached": "キャッシュ",
         "specialTokens": "キャッシュ / 思考",
         "specialTokensDetail": "キャッシュ {{cached}} / 思考 {{reasoning}}",
         "avgLatency": "平均遅延",
@@ -1879,7 +2346,8 @@
         "images": "画像リクエスト",
         "imagesDetail": "生成 {{generate}} / 編集 {{edit}} / 権限 {{blocked}}",
         "estimatedCost": "推定価値",
-        "estimatedCostDetail": "各リクエストの価格スナップショットで累計"
+        "estimatedCostDetail": "各リクエストの価格スナップショットで累計",
+        "successRateLabel": "成功率"
       },
       "routingLabel": "ルーティング",
       "routingSaveSuccess": "API サービスのルーティングを更新しました",
@@ -1898,6 +2366,10 @@
       "killPortSuccess": "ポートをクリアしました（{{count}} 個のプロセスを終了）",
       "killPortSuccessNone": "ポートを確認しました。外部プロセスは使用していません。",
       "killPortSuccessUnknown": "API サービスのポートをクリアしました",
+      "restartAction": "Sidecar を再起動",
+      "restartTitle": "API サービスを再起動",
+      "restartConfirmMessage": "API サービスの Sidecar だけを再起動します。アカウント、Token、API Key、アカウントプール設定は変更されません。実行中のリクエストは中断される場合があります。続行しますか？",
+      "restartSuccess": "API サービスの Sidecar を再起動しました",
       "refreshStats": "統計を更新",
       "refreshStatsSuccess": "API サービスの統計を更新しました",
       "routingStrategy": {
@@ -1908,6 +2380,7 @@
         "planHighFirst": "上位プラン優先",
         "planLowFirst": "下位プラン優先",
         "expirySoonFirst": "期限が近い順",
+        "random": "ランダム",
         "custom": "カスタム"
       },
       "statusUnconfigured": "未設定",
@@ -1930,7 +2403,12 @@
         "label": "統計範囲",
         "daily": "日",
         "weekly": "週",
-        "monthly": "月"
+        "monthly": "月",
+        "custom": "カスタム",
+        "start": "開始",
+        "end": "終了",
+        "apply": "適用",
+        "invalid": "終了時刻は開始時刻より前にできません"
       },
       "enableBeforeActivateTitle": "サービスが未有効です",
       "enableBeforeActivateMessage": "APIサービスは現在無効です。先に有効化する必要があります。有効化して切り替えますか？",
@@ -1963,7 +2441,7 @@
       },
       "customRoutingEdit": "カスタムルーティングを編集",
       "customRoutingTitle": "カスタムルーティング",
-      "customRoutingDesc": "アカウントごとに優先度と重みを設定し、選択順と同じ優先度内の負荷配分を制御します。",
+      "customRoutingDesc": "優先度と重みを設定し、アカウント選択順と負荷分散を制御します。",
       "customRoutingBackupTitle": "予備アカウント",
       "customRoutingBackupDesc": "通常アカウントがすべて利用できない場合のみ使用します。通常アカウントが復旧すると、新しいリクエストは自動的に切り戻されます。",
       "customRoutingBackupShort": "予備",
@@ -2054,8 +2532,37 @@
         "title": "アカウントプール",
         "allAvailable": "すべて正常 {{count}}",
         "availableRatio": "正常 {{available}}/{{total}}",
-        "issueSummary": "異常 {{abnormal}} · 冷却 {{cooldown}}",
-        "detail": "正常 {{available}}/{{total}}、異常 {{abnormal}}、冷却 {{cooldown}}、欠落 {{missing}}、認証 {{authError}}、クォータ {{quotaLimited}}"
+        "issueSummary": "異常 {{abnormal}} · プール {{poolUnavailable}} · 冷却 {{cooldown}}",
+        "detail": "正常 {{available}}/{{total}}、異常 {{abnormal}}、プール異常 {{poolUnavailable}}、冷却 {{cooldown}}、欠落 {{missing}}、認証 {{authError}}、クォータ {{quotaLimited}}",
+        "openDetails": "アカウントプールの異常を表示",
+        "recover": "アカウント状態を復旧",
+        "recoverSuccess": "{{count}} 件のアカウントの復旧を要求しました",
+        "dialog": {
+          "title": "アカウントプールの異常",
+          "description": "Sidecar スケジューラの状態として、アカウントの異常と選択前のプール異常を表示します。",
+          "noIssues": "アカウントプールに異常はありません",
+          "unscopedApiKey": "現在の API Key",
+          "poolUnavailable": "プールに利用可能なアカウントがありません",
+          "poolUnavailableDetail": "モデル {{model}} に利用可能なアカウントを選択できませんでした",
+          "poolDiagnosticDetail": "モデル {{model}}：候補 {{candidate}}、範囲内 {{scoped}}、利用可能 {{available}}、利用不可 {{unavailable}}、モデル除外 {{modelExcluded}}、クォータ予約 {{quotaReserved}}、画像ポリシー除外 {{imageBlocked}}",
+          "missing": "アカウント欠落",
+          "cooldown": "冷却中",
+          "quota": "クォータ制限",
+          "missingDetail": "アカウントが一覧に存在しません",
+          "cooldownModel": "モデル {{model}} は冷却中です",
+          "cooldownUntil": "モデル {{model}} は {{time}} まで冷却中です",
+          "authDetail": "OAuth 認証が失効した可能性があります。再認証してください。",
+          "quotaDetail": "クォータが一時的に利用できません。回復を待つかプランを確認してください。",
+          "paymentDetail": "プランまたは支払い状態を確認してください。",
+          "modelDetail": "このアカウントは要求されたモデルに対応していません。",
+          "upstreamDetail": "上流サービスが一時的に異常です。復旧後に再試行します。",
+          "disabledDetail": "このアカウントは無効です。先に有効化してください。",
+          "unavailableDetail": "Sidecar は現在このアカウントをスケジュール対象にしていません。",
+          "recover": "復旧",
+          "recovering": "復旧中…",
+          "recoverAll": "すべて復旧",
+          "resyncPool": "プールを再同期"
+        }
       },
       "testChatModel": "モデル",
       "testChatClear": "会話を消去",
@@ -2066,7 +2573,8 @@
       "testChatSend": "送信",
       "testChatInputRequired": "テストメッセージを入力してください",
       "testChatModelRequired": "モデル ID を選択してください",
-      "testChatEmptyResponse": "空の応答"
+      "testChatEmptyResponse": "空の応答",
+      "removeAction": "API から削除"
     },
     "local": {
       "desc": "~/.codex/auth.json から現在ログイン中のアカウントをインポート",
@@ -2080,9 +2588,17 @@
     "quota": {
       "hourly": "5 時間クォータ",
       "weekly": "週次クォータ",
+      "monthlyCredits": "残高",
+      "monthlyCreditsValue": "{{remaining}} / {{total}}",
+      "creditBalance": "{{balance}}",
+      "unlimitedCredits": "∞",
       "additional": "追加クォータ",
       "reset": "リセット",
       "weeklyBlocksHourly": "週クォータが 0 のため、5時間クォータは利用できません",
+      "windowStats": "使用 {{tokens}} · {{cost}}",
+      "windowStatsHint": "この枠が満額になってから、このアカウントが API サービス経由で使ったリクエスト数・トークン・アカウント課金",
+      "windowUsed": "使用 {{tokens}} · {{cost}}",
+      "windowReq": "{{count}} 回",
       "resetCredits": "リセット {{count}}",
       "resetCreditsTitle": "5時間枠の残りリセット回数: {{count}}",
       "resetCreditConfirm": "確認?",
@@ -2104,14 +2620,28 @@
       "resetCreditNoRecords": "リセット記録はありません",
       "resetCreditRecordsLoadFailed": "リセット記録の読み込みに失敗しました: {{error}}",
       "resetCreditGrantedAt": "付与",
-      "resetCreditExpiresAt": "期限"
+      "resetCreditExpiresAt": "期限",
+      "windowAccountCostHint": "アカウント課金（モデル価格の概算）",
+      "windowUserCostHint": "ユーザー課金",
+      "windowWeeks": "{{count}}週クォータ",
+      "windowDays": "{{count}}日クォータ",
+      "windowHours": "{{count}}時間クォータ",
+      "windowMinutes": "{{count}}分クォータ",
+      "codeReview": "コードレビュー",
+      "codeReviewShort": "レビュー",
+      "monthlyCreditsHint": "今月のクレジット残量",
+      "monthlyCreditsInline": "Credits：{{value}}"
     },
     "quotaError": {
       "badge": "クォータエラー",
       "refreshFailedBadge": "更新失敗",
+      "authRefreshDeferred": "refresh_token は無効です。現在の access_token は API サービスで引き続き利用できますが、公式クライアントへの切り替えはできません。再認証してから切り替えてください。",
       "generic": "クォータの更新に失敗しました。後でもう一度お試しください",
       "deactivatedWorkspace": "ワークスペースが無効です。アカウントを切り替えるか再認証してください",
-      "requestFailedManualRetry": "ネットワークを確認してください。最新のクォータを取得できませんでした。更新して再試行できます。"
+      "requestFailedManualRetry": "ネットワークを確認してください。最新のクォータを取得できませんでした。更新して再試行できます。",
+      "httpStatusSummary": "API エラー {{status}}",
+      "viewDetails": "詳細",
+      "detailTitle": "エラー詳細"
     },
     "plan": {
       "free": "FREE​",
@@ -2122,7 +2652,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Code Review 配額を表示",
-      "showAdditionalQuota": "モデル専用枠を表示"
+      "showAdditionalQuota": "モデル専用枠を表示",
+      "planBadgeStyle": "プランバッジ様式",
+      "planBadgeStyleDefault": "標準",
+      "planBadgeStyleOutline": "枠線",
+      "planBadgeStyleSoft": "ソフト",
+      "planBadgeStyleMono": "モノクロ"
     },
     "time": {
       "today": "今日 {{time}}",
@@ -2382,7 +2917,8 @@
         "selectAllSessions": "全セッションを選択",
         "clearSelectedSessions": "選択解除",
         "copyToInstance": "インスタンスへコピー",
-        "trash": "ゴミ箱"
+        "trash": "ゴミ箱",
+        "openRollout": "セッションファイルを開く"
       },
       "confirm": {
         "title": "ゴミ箱へ移動",
@@ -2474,8 +3010,8 @@
         "modeTitle": "修復モード",
         "modeQuick": "高速修復",
         "modeQuickDesc": "公式 state DB とセッションメタデータの先頭行だけを修正します。通常のアカウント切り替え後に適しています。",
-        "modeDeep": "詳細修復",
-        "modeDeepDesc": "高速修復で足りない場合の検証向けに、現在の完全なメタデータ修復を実行します。",
+        "modeDeep": "完全修復",
+        "modeDeepDesc": "過去のプロバイダーデータをすべて移行し、カタログ、ワークスペース、サブエージェントのインデックスを修復します。先に対象インスタンスを終了してください。",
         "scopeTitle": "セッション範囲",
         "scopeAll": "すべてのセッション",
         "scopeAllDesc": "現在の管理リストの {{count}} 件のセッションを修復します。",
@@ -2505,7 +3041,11 @@
         "previewAgain": "再プレビュー",
         "preview": "変更をプレビュー",
         "previewFailedWithError": "セッション修復のプレビューに失敗しました: {{error}}",
-        "confirmRepair": "修復を確定"
+        "confirmRepair": "修復を確定",
+        "title": "履歴を修復",
+        "description": "過去のセッションを対象インスタンスの現在のプロバイダーへ移行し、セッションファイル、SQLite インデックス、ローカルセッションカタログ、ワークスペース状態を修復します。最初にローカルバックアップを作成します。",
+        "stopInstanceHint": "完全修復の前に、選択した Codex App/ChatGPT インスタンスを完全に終了してください。変更のプレビューは先に実行できます。",
+        "encryptedContentWarning": "別のプロバイダーまたはアカウントで暗号化された履歴が見つかりました。メタデータは移行できますが、そのセッションの継続や圧縮は失敗する可能性があります。元のプロバイダー/アカウントに戻すか、新しいセッションを開始してください。"
       },
       "importModal": {
         "title": "セッションを読み込み",
@@ -2584,6 +3124,90 @@
         "removeItem": "外す",
         "emptyFilteredTitle": "一致する会話がありません",
         "emptyFilteredDesc": "検索、ソース、選択状態を調整してください。"
+      },
+      "kindFilter": "セッション種別",
+      "kind": {
+        "conversation": "会話",
+        "external": "外部",
+        "subagent": "サブエージェント",
+        "all": "すべて"
+      },
+      "pickInstancePrompt": "このセッションは複数インスタンスにあります。インスタンス ID を入力:"
+    },
+    "sessionUsage": {
+      "tab": "使用量",
+      "listTab": "セッション",
+      "title": "セッション使用量",
+      "desc": "ローカルの Codex セッションログから実際のトークン使用量を集計します。公式クォータや API サービスのリクエストログは使いません。",
+      "hint": "公式クォータはプラン枠、API サービスログはローカルゲートウェイ経由のみです。ここでは JSONL のリクエスト単位増分を合計します。",
+      "range": {
+        "label": "期間",
+        "7d": "7日",
+        "30d": "30日",
+        "month": "今月",
+        "all": "すべて"
+      },
+      "instance": {
+        "label": "インスタンス",
+        "all": "全インスタンス"
+      },
+      "actions": {
+        "refresh": "更新",
+        "rebuild": "再スキャン"
+      },
+      "status": {
+        "idle": "未スキャン",
+        "scanning": "セッションログをスキャン中…",
+        "ready": "{{files}} ファイル、{{requests}} リクエストを集計",
+        "lastSynced": "最終同期 {{time}}",
+        "deferred": "親待ちのフォーク {{count}} 件",
+        "errors": "解析失敗 {{count}} 件"
+      },
+      "cards": {
+        "input": "入力 Tokens",
+        "cached": "キャッシュ入力 Tokens",
+        "output": "出力 Tokens",
+        "total": "合計 Tokens",
+        "requests": "リクエスト",
+        "cost": "概算費用"
+      },
+      "tables": {
+        "model": "モデル別",
+        "instance": "インスタンス別",
+        "day": "日別",
+        "modelName": "モデル",
+        "instanceName": "インスタンス",
+        "dayName": "日付",
+        "input": "入力 Tokens",
+        "cached": "キャッシュ Tokens",
+        "output": "出力 Tokens",
+        "total": "合計 Tokens",
+        "requests": "回数"
+      },
+      "empty": {
+        "title": "使用量はまだありません",
+        "desc": "このページを開くと、ローカルの Codex セッションログと追加インスタンスをバックグラウンドでスキャンします。使った直後なら更新してください。"
+      },
+      "rebuildConfirm": {
+        "title": "再スキャン",
+        "message": "セッション使用量キャッシュを消し、全ログを読み直します。公式クォータと API サービスログは変わりません。続けますか？"
+      },
+      "errors": {
+        "loadFailed": "セッション使用量の読み込みに失敗：{{error}}",
+        "syncFailed": "セッション使用量のスキャンに失敗：{{error}}"
+      },
+      "summary": {
+        "title": "直近30日",
+        "scanning": "スキャン中",
+        "updating": "同期中",
+        "detail": "詳細",
+        "back": "戻る",
+        "input": "入力",
+        "cached": "キャッシュ",
+        "output": "出力",
+        "total": "合計",
+        "requests": "回数",
+        "cost": "費用"
       }
     },
     "api": {
@@ -2598,6 +3222,20 @@
       "showApiKey": "API Keyを表示",
       "hideApiKey": "API Keyを非表示",
       "apiKeyHiddenHint": "API Keyは非表示です。クリックすると表示します。",
+      "modelCatalog": {
+        "label": "モデル一覧",
+        "fetch": "プロバイダーから取得",
+        "fetching": "取得中...",
+        "count": "{{count}} 件のモデル",
+        "placeholder": "1 行に 1 つのモデル ID を入力するか、カンマで区切ってください。",
+        "editHint": "取得したモデルはこの下書きにのみ反映されます。保存前に確認・編集できます。",
+        "syncToggle": "プロバイダーのモデルを Codex に同期",
+        "syncDescription": "保存後、この一覧から Cockpit 管理の Codex モデルカタログを生成します。ユーザー独自のカタログは上書きしません。",
+        "fetchCredentialsRequired": "先に API Key と Base URL を入力してください。",
+        "fetchEmpty": "プロバイダーからモデルが返されませんでした。現在の一覧を保持します。",
+        "fetchFailed": "プロバイダーのモデルを取得できませんでした：{{error}}",
+        "syncRequiresModels": "Codex に同期する前に、モデルを 1 件以上取得または入力してください。"
+      },
       "actions": {
         "addAndSwitch": "追加して切り替える"
       },
@@ -2703,14 +3341,35 @@
         }
       }
     },
+    "deepSeek": {
+      "start": {
+        "title": "DeepSeek を起動",
+        "hint": "起動前に接続方式とモデルを選びます。ゲートウェイと CDP は Codex 公式モデル一覧で Flash / Pro を切り替えられます。直結はゲートウェイを使わず、ここで選んだモデルで起動します。",
+        "accessMode": "接続方式",
+        "gatewayMode": "GW 表示",
+        "gatewayDesc": "インスタンス用ゲートウェイはモデル名だけ書き換えます。Codex で Flash / Pro を切り替えできます。",
+        "directMode": "公式直結",
+        "directDesc": "ゲートウェイなしで公式 API に直結します。Codex 内では切り替えできず、毎回ここで選びます。",
+        "chatOnlyHint": "Chat Completions はローカルゲートウェイのみです。起動モデルをここで選んでください。",
+        "model": "起動モデル",
+        "confirm": "起動",
+        "chooseAtStart": "起動時に選択",
+        "cdpMode": "CDP 注入",
+        "cdpDesc": "公式 API に直結し、ゲートウェイは使いません。CDP で Codex 公式モデル一覧を制御し、ゲートウェイと同じ操作で Flash / Pro を切り替えます。"
+      }
+    },
     "modelProviders": {
       "tab": "モデルプロバイダー",
       "desc": "モデルプロバイダーと複数の API キーをまとめて管理し、Codex の API キーアカウントを追加するときにそのまま再利用できます。",
       "add": "プロバイダーを追加",
+      "managePresets": "モデルプリセット",
       "loadFailed": "モデルプロバイダーの読み込みに失敗しました: {{error}}",
       "emptyTitle": "モデルプロバイダーはまだありません",
       "emptyDesc": "右上の「プロバイダーを追加」をクリックして開始します。",
       "baseUrl": "ベース URL",
+      "modelCatalog": "モデル",
+      "modelCatalogEmpty": "モデルカタログ未設定",
+      "gatewayHint": "サードパーティプロバイダーは、インスタンス分離とプロトコル変換のためローカルゲートウェイ経由で起動します。公式 OpenAI プロバイダーは直接接続のままです。",
       "website": "ウェブサイト",
       "apiKeyPage": "API キーページ",
       "apiKeysCount": "API キー {{count}} 件",
@@ -2760,8 +3419,19 @@
         "gatewayMode": "ゲートウェイモード",
         "directMode": "直接モード"
       },
+      "wireApi": {
+        "help": "ほとんどのプロバイダーでは Responses を選択してください。プロバイダーが Chat Completions のみを明示している場合だけ切り替えます。迷う場合は Responses を優先してください。",
+        "helpAria": "プロトコルのヘルプを表示",
+        "responses": "Responses ネイティブ",
+        "chatCompletions": "Chat Completions プロトコル",
+        "deepseekResponsesHint": "DeepSeek を起動してゲートウェイまたは公式ダイレクト接続を選択し、Flash か Pro を選びます。ゲートウェイは Codex 内にモデルを表示します。ダイレクト接続はゲートウェイを経由しません。",
+        "deepseekChatHint": "DeepSeek Chat Completions はレガシーパスでローカルゲートウェイブリッジを使用します。公式の Codex ツール動作が必要な場合は Responses を選択してください。"
+      },
       "selectSavedProvider": "保存済みプロバイダー",
       "selectSavedApiKey": "保存済み API キー",
+      "selectSavedApiKeyPlaceholder": "API キーを選択",
+      "selectSavedApiKeyHint": "このプロバイダーには複数の API キーがあります。ここで選択してください。",
+      "manualApiKeyOption": "新しいキーを手動で入力",
       "noSavedProviders": "保存済みのプロバイダーはまだありません。フィールドを直接入力すると自動で保存されます。",
       "newProviderName": "プロバイダー名（任意、自動保存に使用）",
       "newProviderNamePlaceholder": "空欄の場合はホスト名が自動で使われます",
@@ -2816,14 +3486,8 @@
         "contextWindow": "コンテキストウィンドウ",
         "contextWindowHint": "model_context_window を書き込みます。カスタムモードでのみ編集可能です。",
         "partialDetected": "現在設定されている管理フィールドは、model_context_window={{context}}、model_auto_compact_token_limit={{compact}} の 1 つだけです。保存すると、現在のスキームを使用して両方のフィールドが書き換えられます。",
-        "notSet": "未設定"
-      },
-      "managePresets": "モデルプリセット",
-      "wireApi": {
-        "responses": "Responses ネイティブ",
-        "chatCompletions": "Chat Completions プロトコル",
-        "help": "ほとんどのプロバイダーでは Responses を選択してください。プロバイダーが Chat Completions のみを明示している場合だけ切り替えます。迷う場合は Responses を優先してください。",
-        "helpAria": "プロトコルのヘルプを表示"
+        "notSet": "未設定",
+        "modelCatalogDesc": "表示モデルとモデル別コンテキスト設定を、現在の Codex の Cockpit 管理モデルカタログへ統合して書き込みます。"
       },
       "testing": "テスト中...",
       "testSuccess": "プロバイダー接続は正常です：{{protocol}}、{{model}}、{{latency}}。",
@@ -2883,7 +3547,12 @@
           "pending": "待機中",
           "completed": "完了"
         },
-        "officialClientOnlyError": "このプロバイダーは Codex 公式クライアントからのリクエストのみ許可します。ワンクリックテストはローカルゲートウェイ経由になりましたが、上流はこのテストリクエストを拒否しました。公式 Codex 起動後の動作を基準にしてください。"
+        "officialClientOnlyError": "このプロバイダーは Codex 公式クライアントからのリクエストのみ許可します。ワンクリックテストはローカルゲートウェイ経由になりましたが、上流はこのテストリクエストを拒否しました。公式 Codex 起動後の動作を基準にしてください。",
+        "modelAuto": "自動（カタログ/検出）",
+        "modelCustom": "カスタムモデル…",
+        "modelLabel": "テストモデル",
+        "modelCustomPlaceholder": "モデル ID（例: gpt-4.1-mini）",
+        "modelHint": "任意：共通テストモデル。空欄時は各プロバイダーの一覧から自動選択します。"
       },
       "enableAndStart": "起動",
       "instance": {
@@ -2895,9 +3564,6 @@
         "shortLabel": "インスタンス",
         "saveFailed": "インスタンスのバインド保存に失敗しました: {{error}}"
       },
-      "modelCatalog": "モデル",
-      "modelCatalogEmpty": "モデルカタログ未設定",
-      "gatewayHint": "サードパーティプロバイダーは、インスタンス分離とプロトコル変換のためローカルゲートウェイ経由で起動します。公式 OpenAI プロバイダーは直接接続のままです。",
       "vision": {
         "providerDefault": "このプロバイダーは既定で画像入力に対応します",
         "providerDefaultHint": "オフの場合、下に記載したモデルだけが画像入力を受け付け、それ以外はローカルゲートウェイで拒否されます。",
@@ -2974,7 +3640,11 @@
         "help": "プロバイダーが Responses WebSocket を明示的にサポートしている場合のみ有効にしてください。接続方式は Codex またはプロキシサービスのログで確認できます。",
         "enabled": "有効",
         "disabled": "無効"
-      }
+      },
+      "renameApiKeyPrompt": "API キー名を変更",
+      "renameApiKeySuccess": "API キーを変更しました",
+      "renameApiKeyFailed": "API キー名の変更に失敗：{{error}}",
+      "existingApiKeysSearch": "既存 API Key を検索…"
     },
     "quickSwitch": {
       "action": "プロバイダーをクイック切り替え",
@@ -3018,6 +3688,56 @@
       "accessTokenOnlyUsable": "Token 利用可",
       "accessTokenOnlyUsableDetail": "サブスクリプション情報の取得は制限されていますが、クォータと Codex の利用は正常です"
     },
+    "switchProgress": {
+      "completed": "切替完了",
+      "needsAttention": "対応が必要",
+      "steps": {
+        "credentials": "アカウント認証情報を読み込み",
+        "accessToken": "access_token を確認",
+        "idToken": "id_token を確認",
+        "stopRuntime": "以前の実行状態を停止",
+        "refreshTokens": "ログイン情報を更新",
+        "writeCredentials": "クライアント認証情報を書き込み",
+        "syncSettings": "アカウント設定を同期",
+        "startClient": "Codex クライアントを起動"
+      },
+      "status": {
+        "pending": "待機中",
+        "running": "処理中",
+        "completed": "完了",
+        "warning": "更新が必要",
+        "skipped": "スキップ",
+        "error": "失敗"
+      },
+      "detail": {
+        "missing": "認証情報が見つかりません",
+        "opaqueToken": "不透明な Token のため、有効期限はサービス側で確認します",
+        "expiryUnknown": "有効期限を取得できません",
+        "expiresAt": "有効期限：{{time}}（{{relative}}）",
+        "readingCredentials": "ローカルアカウントと Token 情報を読み込んでいます...",
+        "nonOAuthAccount": "OAuth アカウントではないためログイン Token の確認は不要です",
+        "credentialsFound": "読み込み済み：{{tokens}}",
+        "notApplicable": "この確認は現在のアカウントには不要です",
+        "refreshNeeded": "期限切れまたは安全更新期間内のため更新が必要です",
+        "tokenValid": "現在有効で、更新は不要です",
+        "stoppingRuntime": "ChatGPT/Codex と app-server を安全に停止しています...",
+        "runtimeStopped": "以前のクライアント実行状態を安全に停止しました",
+        "waiting": "前の手順の完了を待っています",
+        "refreshingTokens": "新しい access_token を取得し、サービスが返したローテーション済み認証情報を保存しています...",
+        "refreshSkipped": "access_token は有効なため refresh_token は使用していません",
+        "refreshFailed": "access_token を自動更新できませんでした",
+        "refreshResultReused": "別の更新元が保存した最新 Token を使用しました",
+        "refreshCompleted": "access_token とローテーション済み認証情報を安全に保存しました",
+        "credentialsWritten": "公式ルールに従って auth.json / keychain を更新しました",
+        "writingCredentials": "対象アカウントのログイン情報を書き込んでいます...",
+        "settingsSynced": "アカウント連携、速度、関連設定を同期しました",
+        "syncingSettings": "アカウント連携と関連設定を同期しています...",
+        "launchDisabled": "切替後の自動起動は無効です。後で手動起動できます",
+        "clientStartWarning": "認証情報は切り替わりましたが起動に失敗しました。後で再試行してください",
+        "clientStarted": "Codex クライアントを起動しました",
+        "startingClient": "Codex クライアントを起動しています..."
+      }
+    },
     "apiSwitchNotice": {
       "title": "Codex セッションが表示されません",
       "message": "Codex が {{from}} から {{to}} に切り替わりました。公式仕様により、この種の切り替え後は既存セッションが自動表示されない場合があります。セッションの表示状態を自動修復しています。後で「セッション管理」から手動修復もできます。",
@@ -3036,6 +3756,9 @@
       "title": "アカウントメモ",
       "label": "アカウントメモ",
       "desc": "{{account}} にパスワード、2FA、メールURL、電話番号、その他メモを追加します。",
+      "workspaceIdLabel": "ChatGPT ワークスペース ID",
+      "workspaceIdPlaceholder": "Team / Workspace の UUID を入力",
+      "workspaceIdHint": "at-* 個人アクセストークン専用です。API サービスが ChatGPT-Account-Id として送信します。",
       "twoFactorSecretLabel": "2FA シークレット",
       "twoFactorSecretShort": "2FA",
       "twoFactorSecretPlaceholder": "Base32 secret または otpauth:// URI",
@@ -3117,6 +3840,11 @@
         "models": "モデルと機能",
         "logs": "統計とログ"
       },
+      "statsRange": {
+        "today": "今日",
+        "thisWeek": "今週",
+        "thisMonth": "今月"
+      },
       "healthTitle": "サービス状態",
       "compat": {
         "title": "プロトコル互換",
@@ -3141,7 +3869,9 @@
       },
       "accountHealth": {
         "failures": "連続失敗 {{count}} 回",
-        "image": "画像 {{status}}"
+        "image": "画像 {{status}}",
+        "unavailable": "一時的に利用不可",
+        "authError": "認証エラー"
       },
       "models": {
         "availableTitle": "利用可能なモデル",
@@ -3156,26 +3886,69 @@
         "rulesSaved": "モデルルールを保存しました",
         "pricingAction": "価格設定",
         "pricingTitle": "モデル価格設定",
-        "pricingDesc": "USD / 100万 tokens。ローカルの価値統計にのみ使用します。",
+        "pricingDesc": "単位は USD / 1M tokens。ローカル統計のみ。",
         "pricingModel": "モデル",
         "pricingInput": "入力",
         "pricingCache": "キャッシュ入力",
         "pricingOutput": "出力",
         "pricingSource": "ソース",
         "pricingActions": "操作",
-        "pricingCachePlaceholder": "入力と同じ",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "カスタム",
         "pricingPreset": "プリセット",
         "pricingUnset": "未設定",
         "pricingReset": "リセット",
         "pricingSaved": "価格設定を保存しました",
-        "pricingInvalid": "価格は 0 以上の数値で入力してください",
+        "pricingInvalid": "価格は 0 以上の数値、トークンしきい値は正の整数である必要があります",
         "pricingReprice": "履歴を再計算",
-        "pricingRepriced": "履歴の見積もりを現在の価格で再計算しました"
+        "pricingRepriced": "履歴の見積もりを現在の価格で再計算しました",
+        "pricingLongThreshold": "長文脈しきい値（tokens）",
+        "pricingStandard": "標準",
+        "pricingStandardLong": "標準（長文脈）",
+        "pricingPriority": "優先",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "標準（長文脈）入力",
+        "pricingStandardLongCache": "標準（長文脈）キャッシュ入力",
+        "pricingStandardLongOutput": "標準（長文脈）出力",
+        "pricingPriorityInput": "優先入力",
+        "pricingPriorityCache": "優先キャッシュ入力",
+        "pricingPriorityOutput": "優先出力",
+        "pricingRepriceDone": "履歴見積もりを更新しました（変更 {{updated}} 件）",
+        "pricingRepriceFailedWithMessage": "履歴見積もりの更新に失敗: {{message}}",
+        "pricingRepriceFailed": "履歴見積もりの更新に失敗しました",
+        "pricingRepriceSuperseded": "新しい料金設定を受信。最新の再計算ジョブに切り替えます",
+        "pricingRepriceRunning": "履歴見積もり更新中 {{processed}} / {{total}}（更新 {{updated}} 件）",
+        "pricingRepriceCompleted": "履歴見積もりを更新しました",
+        "pricingRepriceSaveBlocked": "履歴見積もり更新中です。完了後に保存してください"
       },
       "keys": {
         "policyTitle": "モデルポリシー",
         "advancedPolicyTitle": "詳細機能：モデルポリシー",
+        "accountScope": "アカウント切替範囲",
+        "accountScopeInherit": "サービスのアカウントプールに自動追従",
+        "accountScopeFixed": "このキーは紐づけたアカウントに固定され、サービスプールを継承できません",
+        "accountScopeSelected": "{{count}} 件選択済み",
+        "accountScopeInheritedCount": "アカウントプール：{{count}} 件継承",
+        "accountScopeUnavailable": "アカウントプール：利用可能なアカウントなし",
+        "accountScopeCount": "アカウントプール：{{selected}}/{{total}}",
+        "accountScopeRequired": "カスタムプールにはアカウントを1件以上選択してください",
+        "accountScopeModeInherit": "サービスプールを継承",
+        "accountScopeModeCustom": "カスタムプール",
+        "accountPrioritySet": "優先ルーティング用にアカウントを固定",
+        "accountPriorityPromote": "アカウントを最優先に移動",
+        "accountPriorityClear": "優先アカウントの固定を解除",
+        "accountPrioritySaved": "優先アカウントを固定しました",
+        "accountPriorityCleared": "優先アカウントの固定を解除しました",
+        "usageRange": "API キー使用期間",
+        "tokenLimit": "トークン総上限",
+        "tokenLimitPlaceholder": "例: 10m",
+        "tokenLimitHint": "空欄の場合は無制限です。すべてのモデルの入力・出力トークンを合算します。",
+        "tokenLimitInvalid": "10m または 10000000 のような有効なトークン上限を入力してください",
+        "tokenLimitUsage": "トークン上限",
+        "tokenLimitCurrentUsage": "使用済み: {{used}} トークン",
+        "tokenLimitUnlimited": "無制限",
+        "unsaved": "未保存",
+        "resetPolicy": "変更を破棄",
         "modelPrefix": "モデル接頭辞",
         "modelPrefixPlaceholder": "例: codex",
         "allowedModels": "許可モデル",
@@ -3183,16 +3956,21 @@
         "excludedModels": "除外モデル",
         "excludedModelsPlaceholder": "1行にモデルまたはワイルドカード",
         "savePolicy": "ポリシー保存",
-        "policySaved": "Key のモデルポリシーを保存しました"
+        "policySaved": "Key のモデルポリシーを保存しました",
+        "lastUsed": "最終使用",
+        "routingAccounts": "ルーティングアカウント"
       },
       "routing": {
         "optionsTitle": "ルーティング設定",
         "sessionAffinity": "セッション固定",
-        "sessionAffinityTtl": "固定 TTL",
+        "sessionAffinityTtl": "有効期限（秒）",
+        "responsesWebsockets": "WebSocket 経由の Responses",
         "maxRetryCredentials": "再試行アカウント",
         "maxRetryInterval": "再試行待ち",
         "disableCooling": "クールダウン無効",
         "saveOptions": "設定を保存",
+        "immediateSseResponse": "即時 SSE 200",
+        "maxConcurrentImageRequests": "アカウントごとの画像リクエスト",
         "optionsSaved": "ルーティング設定を保存しました"
       },
       "validation": {
@@ -3217,7 +3995,14 @@
         "loading": "リクエストログを読み込み中",
         "gatewayModeUnknown": "不明なモード",
         "requestIdShort": "リクエストID {{id}}",
-        "httpStatus": "HTTP状態 {{status}}"
+        "httpStatus": "HTTP状態 {{status}}",
+        "allInstances": "全インスタンス",
+        "instanceFilter": "インスタンス",
+        "instanceUnknown": "インスタンス -",
+        "reasoningEffort": "思考強度",
+        "reasoningEffortValue": "思考 {{effort}}",
+        "serviceTier": "サービス階層",
+        "serviceTierValue": "階層 {{tier}}"
       },
       "timeouts": {
         "entryLabel": "詳細",
@@ -3278,6 +4063,24 @@
         "clearSelection": "選択解除",
         "saveSuccess": "アカウント別モデル除外を保存しました",
         "cardCount": "{{count}} 件除外"
+      },
+      "usage": {
+        "title": "使用統計",
+        "lastRecorded": "最終記録"
+      },
+      "accountModelMappings": {
+        "action": "モデルマップ",
+        "title": "アカウントモデルマッピング",
+        "desc": "このアカウントが選択された場合のみモデル名を書き換えます。左はクライアントのリクエスト、右は実際に送信される上流モデルです。",
+        "clientModel": "リクエスト",
+        "upstreamModel": "送信",
+        "addRow": "行を追加",
+        "fillDeepSeek": "DeepSeek を入力",
+        "empty": "このプールにはマッピングできる API キーアカウントがありません",
+        "incomplete": "リクエストモデルと送信モデルの両方を入力してください",
+        "duplicate": "リクエストモデルは一意である必要があります",
+        "saveSuccess": "アカウントモデルマッピングを保存しました",
+        "cardCount": "{{count}} 件をマッピング"
       }
     },
     "apiKey": {
@@ -3299,8 +4102,20 @@
       "previewSubtitle": "保存するアカウントを選択",
       "scanSubtitle": "アカウントを1件ずつ解析して確認中",
       "parseSubtitle": "アカウントファイルを解析中",
+      "importSubtitle": "選択したアカウントを保存中",
+      "finalizing": "インポートを完了処理中",
+      "finalizingSubtitle": "アカウント一覧と関連設定を更新中",
+      "cancelImport": "インポートをキャンセル",
+      "importCancelledSummary": "インポートをキャンセルしました。{{processed}}/{{total}} 件を処理済みです。",
+      "importChecked": "確認済みアカウントをインポート",
+      "directImport": "確認せず直接インポート",
+      "importCheckedAndAddToApiService": "確認済みアカウントをインポートして API サービスに追加",
+      "directImportAndAddToApiService": "直接インポートして API サービスに追加",
+      "viewAllTasks": "全 {{count}} 件のタスクを表示",
+      "collapseTasks": "タスクを折りたたむ",
       "cancelling": "キャンセル中...",
       "scanDone": "スキャン完了",
+      "scanCompleteReview": "確認が完了しました。結果を確認してください",
       "parseDone": "解析完了",
       "scanning": "スキャン中",
       "parsing": "解析中",
@@ -3309,7 +4124,7 @@
       "failed": "失敗",
       "quotaOk": "アカウント正常",
       "quotaFailed": "異常",
-      "checkQuotaToggle": "アカウントを検査",
+      "checkQuotaToggle": "インポート前に確認",
       "preparing": "インポートタスクを準備中...",
       "importSelected": "選択したアカウントをインポート",
       "noSelection": "インポートするアカウントを選択してください",
@@ -3332,7 +4147,20 @@
       "taskRunning": "{{current}} / {{total}} 件を処理中",
       "taskPreview": "{{total}} 件のプレビューを作成済み",
       "reopen": "タスクを表示",
-      "dismissTask": "破棄"
+      "dismissTask": "破棄",
+      "queueCount": "キューに {{count}} 件",
+      "queued": "キューに入れられました",
+      "batchLabel": "バッチ {{index}}",
+      "runInBackground": "背景",
+      "cancelQueued": "キューをキャンセルする",
+      "importing": "インポート中",
+      "checkAccounts": "小切手口座",
+      "importAndAddToApiService": "インポート + API",
+      "importAndAddToApiServiceSuccess": "インポートされ、API サービスに追加されました",
+      "addToApiServiceFailed": "インポートされましたが、API サービスへの追加に失敗しました: {{error}}",
+      "cancelAndDismiss": "キャンセルして破棄",
+      "bulkTagsLabel": "取込後にタグ",
+      "bulkTagsPlaceholder": "任意。タグはカンマまたはスペース区切り"
     },
     "autoRepairMode": {
       "label": "自動修復ロジック",
@@ -3378,7 +4206,81 @@
       "chipTags": "タグ",
       "chipSearch": "検索",
       "chipPlan": "プラン",
-      "chipFolder": "フォルダ"
+      "chipFolder": "フォルダ",
+      "authError": "認証失敗",
+      "zeroQuota": "0% 枠",
+      "expired": "期限切れ"
+    },
+    "accessTokenImport": {
+      "nameRequired": "アカウント名を入力",
+      "tokenRequired": "Codex アクセストークンを入力してください",
+      "desc": "アカウント名と access token を保存します。refresh/id がない場合は personal_access_token 形式で書き出します。",
+      "nameLabel": "アカウント名",
+      "namePlaceholder": "一覧表示用の名前",
+      "tokenLabel": "Codex アクセストークン",
+      "hideToken": "非表示",
+      "showToken": "表示",
+      "submit": "トークンをインポート",
+      "success": "アクセストークンアカウントを取り込みました: {{name}}"
+    },
+    "ssh": {
+      "tab": "SSH 同期",
+      "title": "Codex SSH 同期",
+      "desc": "リモートホストを保存し、接続テスト後に現在の auth.json を転送します。切替後、選択中ホストへ自動同期します。",
+      "new": "新規",
+      "empty": "SSH ホストがありません",
+      "test": "接続テスト",
+      "sync": "同期",
+      "saved": "SSH サーバーを保存しました",
+      "deleted": "削除しました",
+      "name": "名前",
+      "host": "ホスト",
+      "user": "ユーザー",
+      "port": "ポート",
+      "remoteDir": "リモート Codex ディレクトリ",
+      "syncSwitch": "スイッチ上の SSH",
+      "syncSwitchDesc": "SSH ホストを構成するにはオンにします。 Codex スイッチは、現在のアカウントをリモートで同期します。",
+      "configure": "設定",
+      "modalTitle": "SSH同期セットアップ",
+      "modalHint": "自動同期が有効になっている SSH ホストを追加して選択し、Codex アカウントの切り替えによってリモート認証が更新されるようにします。",
+      "subtitle": "選択したホストは、アカウントの切り替え後に現在の Codex 認証バンドルを受け取ります。",
+      "addServer": "サーバーの追加",
+      "editServer": "サーバーの編集",
+      "username": "ユーザー名",
+      "codexHome": "リモートコーデックスディレクトリ",
+      "authMethod": "認証方法",
+      "agentAuth": "SSHエージェント",
+      "privateKeyAuth": "秘密鍵",
+      "privateKeyPath": "キーパス",
+      "syncOnSwitch": "切り替え後の同期",
+      "emptyTitle": "SSHサーバーがありません",
+      "emptyBody": "左側にホストを入力し、スイッチ同期ターゲットとして保存します。",
+      "selected": "選択済み",
+      "select": "選択",
+      "testConnection": "テスト",
+      "syncNow": "今すぐ同期する",
+      "connectionOk": "接続済み",
+      "syncVerified": "SSH同期が確認されました",
+      "syncFailed": "SSH同期に失敗しました",
+      "syncedAs": "同期済み {{email}} · {{time}}",
+      "neverSynced": "まだ同期されていません",
+      "latestVerified": "最後に確認された SSH 同期",
+      "syncSwitchActive": "オン · {{name}} ({{user}}@{{host}})",
+      "footerHint": "保存後にスイッチがオンになります。いつでもオフにして自動同期を停止できます。",
+      "formLead": "リモートホストの詳細",
+      "namePlaceholder": "例えばホームNAS",
+      "syncOnSwitchHint": "保存して選択した後、Codex スイッチは認証をこのホストにプッシュします",
+      "addAndSave": "追加して保存",
+      "serverList": "サーバー",
+      "serverListLead": "同期ターゲットを選択",
+      "serverCount": "{{count}} 台",
+      "autoSyncBadge": "自動"
+    },
+    "exportAuthFailed": "失敗を書き出し",
+    "exportAuthFailedTitle": "認証失敗アカウントをすべて書き出す",
+    "accounts": {
+      "showRelayQuota": "中継枠を表示",
+      "hideRelayQuota": "中継枠を非表示"
     }
   },
   "githubCopilot": {
@@ -3595,8 +4497,8 @@
     "inputPercent": "パーセントを入力",
     "inputCredits": "Credits を入力",
     "windsurf": {
-      "title": "Windsurf 設定",
-      "appPath": "Windsurf パス"
+      "title": "Devin 設定",
+      "appPath": "Devin パス"
     },
     "windsurfRefreshInterval": "クォータ自動更新",
     "kiro": {
@@ -3609,19 +4511,14 @@
       "appPath": "Cursor パス"
     },
     "cursorRefreshInterval": "クォータ自動更新",
-    "gemini": {
-      "title": "Gemini Cli 設定",
-      "appPath": "Gemini Cli パス",
-      "syncWsl": "WSL 設定を同期",
-      "syncWslDesc": "アカウント切り替え時に WSL 内の .gemini 設定を自動で上書きします"
-    },
-    "geminiRefreshInterval": "クォータ自動更新",
     "grok": {
       "title": "Grok CLI 設定",
       "appPath": "Grok CLI のパス",
       "cliPath": "CLI のパス",
       "cliDetected": "検出済み: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI が見つかりません。任意のパスを入力してください。"
+      "cliMissing": "Grok CLI が見つかりません。任意のパスを入力してください。",
+      "syncOfficialAuthOnSwitch": "切替時に公式ログインへ同期",
+      "syncOfficialAuthOnSwitchDesc": "有効にすると、デフォルトインスタンスで OAuth アカウントを切り替えた際に公式の ~/.grok/auth.json へ書き込みます。無効時は個別の GROK_HOME を使用します。API Key と追加インスタンスは公式ログインを上書きしません。"
     },
     "grokRefreshInterval": "クォータ自動更新",
     "codebuddy": {
@@ -3705,21 +4602,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf アカウント管理",
+    "title": "Devin アカウント管理",
     "instances": {
       "unsupported": {
-        "desc": "Windsurfマルチインスタンスは現在macOSでのみ利用可能です。"
+        "desc": "Devinマルチインスタンスは現在macOSでのみ利用可能です。"
       }
     },
     "empty": {
-      "description": "「アカウントを追加」から Windsurf アカウントを管理できます"
+      "description": "「アカウントを追加」から Devin アカウントを管理できます"
     },
     "addModal": {
-      "title": "Windsurf アカウントを追加",
+      "title": "Devin アカウントを追加",
       "password": "メールログイン"
     },
     "password": {
-      "desc": "Windsurf アカウントのメールアドレスとパスワードでログインし、API Key とアカウント情報を自動取得します。",
+      "desc": "Devin アカウントのメールアドレスとパスワードでログインし、API Key とアカウント情報を自動取得します。",
       "emailPlaceholder": "メールアドレス",
       "passwordPlaceholder": "パスワード",
       "empty": "メールアドレスとパスワードを入力してください",
@@ -3766,14 +4663,14 @@
       "batchFailureMore": "さらに {{count}} 件失敗"
     },
     "oauth": {
-      "desc": "下のボタンをクリックし、ブラウザで Windsurf の認可を完了してください。"
+      "desc": "下のボタンをクリックし、ブラウザで Devin の認可を完了してください。"
     },
     "token": {
-      "desc": "Windsurf のアクセストークン、またはエクスポートした JSON データを貼り付けてください。"
+      "desc": "Devin のアクセストークン、またはエクスポートした JSON データを貼り付けてください。"
     },
     "import": {
-      "localDesc": "ローカルでログイン済みのセッションから Windsurf アカウントをインポート。",
-      "localClient": "ローカル Windsurf からインポート"
+      "localDesc": "ローカルでログイン済みのセッションから Devin アカウントをインポート。",
+      "localClient": "ローカル Devin からインポート"
     },
     "credits": {
       "title": "プラン",
@@ -3797,15 +4694,15 @@
       "autoRecharge": "自動チャージ",
       "remaining": "残り {{value}}"
     },
-    "injectToVSCode": "Windsurfに切り替え",
-    "injectSuccess": "切り替えが完了しました。Windsurf を起動しています。",
-    "injectRequireClose": "切り替える前に Windsurf を閉じてください。",
+    "injectToVSCode": "Devinに切り替え",
+    "injectSuccess": "切り替えが完了しました。Devin を起動しています。",
+    "injectRequireClose": "切り替える前に Devin を閉じてください。",
     "flowNotice": {
-      "title": "Windsurf アカウントガイド（クリックで展開/折りたたみ）",
-      "desc": "アカウント切り替えでは、Windsurf のローカル認証ストレージを読み取り、システムの資格情報サービスを使って復号・再書き込みを行う必要があります。データは端末内のみで処理されます。",
-      "inject": "ワンクリック切り替え: このツールはローカルの Windsurf 暗号化情報（DPAPI/Keychain/Secret Service）を読み取り、state.vscdb 内の認証セッションを復号して Windsurf トークンを置き換え、再暗号化します。処理はすべて端末内で完結します。",
-      "reason": "必要な権限: Windsurf 認証データベース（state.vscdb）を読み取り、システム暗号化機能（Windows DPAPI / macOS Keychain / Linux Secret Service）を呼び出して復号・再書き込みを行います。",
-      "storage": "読み取り範囲: Windsurf ログインセッション関連データのみを処理し、すべての処理はローカルで実行されます。"
+      "title": "Devin アカウントガイド（クリックで展開/折りたたみ）",
+      "desc": "アカウント切り替えでは、Devin のローカル認証ストレージを読み取り、システムの資格情報サービスを使って復号・再書き込みを行う必要があります。データは端末内のみで処理されます。",
+      "inject": "ワンクリック切り替え: このツールはローカルの Devin 暗号化情報（DPAPI/Keychain/Secret Service）を読み取り、state.vscdb 内の認証セッションを復号して Devin トークンを置き換え、再暗号化します。処理はすべて端末内で完結します。",
+      "reason": "必要な権限: Devin 認証データベース（state.vscdb）を読み取り、システム暗号化機能（Windows DPAPI / macOS Keychain / Linux Secret Service）を呼び出して復号・再書き込みを行います。",
+      "storage": "読み取り範囲: Devin ログインセッション関連データのみを処理し、すべての処理はローカルで実行されます。"
     }
   },
   "kiro": {
@@ -3854,10 +4751,21 @@
       "description": "「アカウントを追加」をクリックして Kiro アカウントの管理を開始します"
     },
     "addModal": {
-      "title": "Kiroアカウントを追加する"
+      "title": "Kiroアカウントを追加する",
+      "idc": "AWS SSO ログイン"
     },
     "oauth": {
       "desc": "下のボタンをクリックして、ブラウザで Kiro 認証を完了してください。"
+    },
+    "idc": {
+      "builderId": "AWS Builder ID アカウント",
+      "enterprise": "企業アカウント",
+      "desc": "ブラウザで AWS IAM Identity Center の認証を完了すると、アカウントが自動的に保存されます。",
+      "region": "AWS リージョン",
+      "startUrl": "IAM Identity Center の開始 URL",
+      "start": "企業ログインを開始",
+      "regionRequired": "AWS リージョンを入力してください",
+      "startUrlRequired": "IAM Identity Center の開始 URL を入力してください"
     },
     "token": {
       "desc": "Kiro アクセス トークンまたはエクスポートされた JSON データを貼り付けます。"
@@ -3983,7 +4891,7 @@
       "goSettings": "設定へ",
       "goVerification": "起動検証へ",
       "goWakeup": "起動タスクへ",
-      "goWindsurf": "Windsurfへ",
+      "goWindsurf": "Devinへ",
       "openLayout": "プラットフォーム配置を開く"
     },
     "antigravity": {
@@ -4100,11 +5008,11 @@
     "navTitle": "機能マニュアル",
     "providers": {
       "cautions": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro で一括・高リスク操作を行う前に必ずバックアップします。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro 実行前にフィルタ条件と対象を再確認します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro で一括・高リスク操作を行う前に必ずバックアップします。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro 実行前にフィルタ条件と対象を再確認します。"
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro プラットフォーム",
+        "0": "Codex / GitHub Copilot / Devin / Kiro プラットフォーム",
         "1": "ガイド",
         "2": "手順",
         "3": "アカウント",
@@ -4112,17 +5020,17 @@
         "5": "障害対応"
       },
       "outcomes": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro で何ができるかを理解します。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro の推奨フローでミスを減らします。",
-        "2": "Codex / GitHub Copilot / Windsurf / Kiro で1回成功を確認してから拡張します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro で何ができるかを理解します。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro の推奨フローでミスを減らします。",
+        "2": "Codex / GitHub Copilot / Devin / Kiro で1回成功を確認してから拡張します。"
       },
       "steps": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro のページを開きます。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro の基本設定と必要な紐付けを完了します。",
-        "2": "Codex / GitHub Copilot / Windsurf / Kiro で手動操作を1回実行し、結果を確認します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro のページを開きます。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro の基本設定と必要な紐付けを完了します。",
+        "2": "Codex / GitHub Copilot / Devin / Kiro で手動操作を1回実行し、結果を確認します。"
       },
-      "summary": "このセクションでは Codex / GitHub Copilot / Windsurf / Kiro の使い方を説明します。",
-      "title": "Codex / GitHub Copilot / Windsurf / Kiro プラットフォーム"
+      "summary": "このセクションでは Codex / GitHub Copilot / Devin / Kiro の使い方を説明します。",
+      "title": "Codex / GitHub Copilot / Devin / Kiro プラットフォーム"
     },
     "quickStart": {
       "cautions": {
@@ -4203,99 +5111,6 @@
       },
       "summary": "このセクションでは 起動タスクと検証 の使い方を説明します。",
       "title": "起動タスクと検証"
-    }
-  },
-  "gemini": {
-    "injectToGemini": "Gemini Cli に切り替え",
-    "updated": {
-      "label": "{{relative}}前に更新"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "{{value}}% 残り",
-      "resetsIn": "{{relative}}後にリセット",
-      "resetsSoon": "まもなくリセット",
-      "resetsUnknown": "リセット時刻不明",
-      "onDemand": "オンデマンド",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "title": "Gemini Cli アカウント管理",
-    "instances": {
-      "unsupported": "Gemini Cli のマルチインスタンス管理は現在未対応です。",
-      "unsupportedDescPlatform": "Gemini Cli のマルチインスタンスは macOS、Windows、Linux のみ対応しています。",
-      "launchDialogTitle": "インスタンスを起動",
-      "launchHint": "コマンドをコピーして手動で実行するか、直接ターミナルで実行してください。",
-      "runInTerminal": "ターミナルで実行",
-      "workingDir": "作業ディレクトリ",
-      "workingDirPlaceholder": "デフォルトは現在のパス",
-      "workingDirDesc": "起動時にまずこのディレクトリに切り替えます",
-      "pickWorkingDir": "作業ディレクトリを選択"
-    },
-    "switch": {
-      "success": "アカウントの切り替えに成功しました"
-    },
-    "empty": {
-      "description": "「アカウント追加」をクリックして Gemini Cli アカウントの管理を開始してください"
-    },
-    "addModal": {
-      "title": "Gemini Cli アカウントを追加"
-    },
-    "oauth": {
-      "desc": "下のボタンをクリックして、ブラウザで Gemini Cli の認可を完了してください。"
-    },
-    "token": {
-      "desc": "Gemini Cli アクセストークン（JWT）またはエクスポートされた JSON データを貼り付けてください。",
-      "formatHint": "必須フィールドと例（クリックで展開）",
-      "formatRequired": "単一トークン：JWT を直接貼り付け；一括インポート：JSON 配列形式を使用",
-      "singleExample": "単一の例（JWT）",
-      "batchExample": "一括の例（JSON）"
-    },
-    "import": {
-      "localDesc": "ローカルの Gemini Cli クライアントまたは JSON ファイルからアカウントデータをインポートします。",
-      "localClient": "ローカル Gemini Cli からインポート"
-    },
-    "flowNotice": {
-      "title": "Gemini Cli アカウントガイド（クリックで展開/折りたたみ）",
-      "desc": "ローカルの Gemini Cli インストールからのインポートまたは JWT トークンの貼り付けで Gemini Cli アカウントを管理します。データはローカルでのみ処理されます。",
-      "reason": "権限範囲: デフォルトの ~/.gemini またはインスタンスパス (GEMINI_CLI_HOME/.gemini) 配下の oauth_creds.json、google_accounts.json、settings.json を読み書きし、アカウントのインポートとローカル認証情報の注入（アカウント切り替え）を行います。",
-      "storage": "ネットワーク範囲: OAuth とクォータ更新では Google/Gemini の公式 API（oauth2.googleapis.com、googleapis.com など）を呼び出します。送信されるのは必要な認証/クォータ項目のみで、ローカルのアカウントファイルは第三者サーバーへアップロードされません。"
-    },
-    "projectConfig": {
-      "button": "GCP プロジェクトを設定",
-      "title": "GCP プロジェクトを設定",
-      "selectLabel": "プロジェクトを選択",
-      "loading": "プロジェクト一覧を読み込み中...",
-      "auto": "自動選択（手動指定しない）",
-      "empty": "利用可能なプロジェクトが見つかりません。このアカウントに GCP プロジェクトへのアクセス権があるか確認してください。",
-      "hint": "保存後、このプロジェクトがクォータ取得で優先され、起動コマンドでは GOOGLE_CLOUD_PROJECT として注入されます。",
-      "current": "プロジェクト: {{projectId}}",
-      "saved": "プロジェクトを保存しました: {{projectId}}",
-      "cleared": "プロジェクト自動解決に戻しました",
-      "savedWithRefreshError": "プロジェクトは保存されましたが、クォータ更新に失敗しました: {{error}}"
-    },
-    "identity": {
-      "authMethod": "認証方法",
-      "tier": "プラン",
-      "signedInWithGoogle": "Google でサインイン",
-      "signedInWithGoogleEmail": "Google でサインイン（{{email}}）"
-    },
-    "quotaTable": {
-      "model": "モデル",
-      "leftOfTotal": "残量 / 総量",
-      "usage": "使用量",
-      "usageResets": "使用量のリセット",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}}（{{relative}}）"
-    },
-    "tierText": {
-      "pro": "Google One AI Pro の Gemini Code Assist",
-      "ultra": "Google AI Ultra の Gemini Code Assist",
-      "free": "Gemini Code Assist 無料版"
     }
   },
   "codebuddy": {
@@ -4396,6 +5211,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "sessions": {
+      "title": "ローカルセッション",
+      "desc": "ローカルセッション — ローカルデータからスキャンして場所を開きます。",
+      "empty": "セッションファイルが見つかりません",
+      "open": "場所を開く"
     }
   },
   "qoder": {
@@ -4477,7 +5298,18 @@
       "payAsYouGoConsuming": "従量課金：消費中",
       "payAsYouGoEnabled": "従量課金：有効",
       "payAsYouGoEmpty": "従量課金：--",
-      "payAsYouGoLabel": "従量課金"
+      "payAsYouGoLabel": "従量課金",
+      "statusSynced": "状態：同期済み",
+      "statusSyncedPending": "状態：同期済み、残量未確定",
+      "fastAvailable": "高速枠 {{times}}",
+      "fastTimes": "{{count}} 回",
+      "fastUnlimited": "無制限",
+      "fastPerMonth": "高速/月：{{count}}",
+      "fastChannelPerMonth": "高速枠: {{count}}/月",
+      "fastChannelStatus": "高速枠: {{status}}",
+      "freeRemainingUnknown": "無料残量：--",
+      "timesRemainingUnknown": "残回数：--",
+      "soloParallel": "特典: Solo 並列 {{count}}"
     },
     "flowNotice": {
       "title": "Trae アカウントガイド（クリックで展開/折りたたみ）",
@@ -4489,6 +5321,10 @@
       "permissionWithPlatform": "権限範囲：アカウントインポート、切り替え注入、プラン表示のため、ローカル {{platform}} の storage.json 内のログイン関連フィールドを読み書きします。すべてのデータはローカルで処理されます。",
       "networkGlobal": "ネットワーク範囲：{{platform}} OAuth ログイン、トークン更新、プラン照会では公式 trae.ai / traeapi.us API を呼び出します。ローカルのアカウントファイルや生の保存内容を第三者サービスへアップロードしません。",
       "networkCn": "ネットワーク範囲：{{platform}} OAuth ログイン、トークン更新、プラン照会では公式 trae.cn / trae.com.cn API を呼び出します。ローカルのアカウントファイルや生の保存内容を第三者サービスへアップロードしません。"
+    },
+    "token": {
+      "jsonOnlyDesc": "完全な Trae CN アカウント JSON を貼り付けてください。生トークンは不安定な識別や利用不能なログイン状態を避けるため非対応です。",
+      "jsonOnlyPlaceholder": "完全な Trae CN JSON を貼り付け..."
     }
   },
   "codebuddyCn": {
@@ -4642,7 +5478,24 @@
       "streakDays": "{{days}}日",
       "streakRewardCountdown": "ボーナス報酬まであと{{days}}日",
       "streakRewardToday": "本日はボーナス報酬を受け取れます！",
-      "recentDates": "最近: "
+      "recentDates": "最近: ",
+      "claimed": "受取済み",
+      "queryFailed": "照会失敗",
+      "retry": "再試行",
+      "inactive": "利用不可",
+      "inactiveHint": "このアカウントではチェックインが無効です",
+      "autoCheckinSettings": "自動チェックイン設定",
+      "autoCheckinLabel": "自動チェックイン",
+      "autoCheckinOff": "自動チェックインオフ",
+      "autoCheckinEnabledHint": "自動チェックイン有効：{{start}} から {{end}} の間にランダムチェックイン",
+      "autoCheckinDisabledHint": "自動チェックイン無効",
+      "enableAutoCheckin": "自動チェックインを有効化",
+      "enableAutoCheckinDesc": "指定された時間帯内で毎日ランダムにチェックインします",
+      "randomTimeRange": "ランダムチェックイン時間帯",
+      "startTime": "開始時間",
+      "endTime": "終了時間",
+      "timeRangeHint": "バックグラウンドチェックインを完了するため、この時間帯から毎日ランダムな時間を自動選択します。",
+      "timeRangeError": "開始時間は終了時間より後にできません"
     }
   },
   "zcode": {
@@ -4895,7 +5748,13 @@
     "saveAccountName": "アカウント名を保存",
     "cancelEditAccountName": "編集をキャンセル",
     "accountNameRequired": "アカウント名は必須です。",
-    "copySecret": "シークレットをコピー"
+    "copySecret": "シークレットをコピー",
+    "migrationBatchProgress": "スキャン {{current}}/{{total}}",
+    "migrationBatchIncomplete": "未完了。一部保存または続行。",
+    "continueMigrationScan": "スキャン続行",
+    "savePartialMigrationBatch": "一部を保存",
+    "saveCompleteMigrationBatch": "全部を保存",
+    "clearMigrationBatch": "バッチをクリア"
   },
   "logViewer": {
     "fileLabel": "ログファイル",
@@ -5073,8 +5932,8 @@
     "search": "Grok CLI アカウントを検索...",
     "flowNotice": {
       "title": "Grok CLI アカウント管理",
-      "desc": "Cockpit は Grok CLI 公式の認証情報形式でアカウントを管理し、既定アカウントの実切り替えと分離インスタンスへの割り当てに使用します。",
-      "permission": "ローカル範囲: 既定の ~/.grok/auth.json を読み取り、Cockpit のローカルデータ内で個別の Grok アカウントと GROK_HOME ディレクトリを管理します。",
+      "desc": "通常は個別の GROK_HOME を使用します。公式ログイン同期を有効にすると、デフォルトインスタンスの OAuth 切替時に公式の ~/.grok/auth.json へ書き込み、追加インスタンスは分離されたままです。",
+      "permission": "ローカル範囲: 既定の ~/.grok/auth.json はインポート時に読み取れます。書き込みは同期が有効なデフォルトインスタンスの OAuth 切替時のみで、API Key は公式ログインを上書きしません。",
       "network": "ネットワーク範囲: OAuth 認証、認証情報の更新、アカウント使用量の照会。認証情報を Cockpit サービスへアップロードすることはありません。"
     },
     "empty": "Grok CLI アカウントはありません",
@@ -5092,15 +5951,26 @@
     },
     "import": {
       "pasteTab": "JSON を貼り付け",
-      "pasteDesc": "Grok CLI 公式の auth.json を貼り付けます。認証情報はローカルバックエンド内だけで処理されます。Cockpit のエクスポートはマスク済みメタデータのみで、ログインの復元には使えません。",
+      "pasteDesc": "公式 Grok CLI の auth.json、または本アプリが書き出した完全なアカウント JSON（再インポート可）を貼り付けます。資格情報はローカルのみ。",
       "pastePlaceholder": "Grok アカウントの JSON を貼り付け",
       "pasteAction": "JSON をインポート",
-      "localDesc": "既定の ~/.grok/auth.json から現在のアカウントをインポートします。ファイルを選ぶ場合は Grok CLI 公式の auth.json を使用してください。",
+      "localDesc": "既定の ~/.grok/auth.json から取り込みます。公式 auth.json または本アプリの完全エクスポート JSON も選択できます。",
       "localClient": "ローカルの Grok CLI からインポート",
       "apiKeyTab": "APIキー",
-      "apiKeyDesc": "xAI API キー（公式 XAI_API_KEY）を貼り付けます。起動時に環境変数へ注入します。公式 auth.json の貼り付けも可能です。",
+      "apiKeyDesc": "xAI API キー（公式 XAI_API_KEY / xai-…）を貼り付けます。CLI 起動時にアカウント専用 GROK_HOME 経由で注入し、公式 OAuth ログインは上書きしません。",
       "apiKeyPlaceholder": "xai- で始まるキー",
-      "apiKeyAction": "API Key を追加"
+      "apiKeyAction": "API Key を追加",
+      "apiMode": "API の種類",
+      "apiModeOfficial": "xAI 公式",
+      "apiModeCustom": "サードパーティ",
+      "customApiDesc": "OpenAI 互換の Base URL、モデル ID、API キーを設定します。起動時にアカウント専用の config.toml を書き込み、キーはその CLI プロセスにだけ注入します。",
+      "customApiKeyPlaceholder": "サードパーティ API キーを貼り付け",
+      "apiBaseUrl": "接続先 URL",
+      "apiBaseUrlPlaceholder": "例: https://api.example.com/v1",
+      "apiModel": "モデル ID",
+      "apiModelPlaceholder": "例: grok-4.1-fast",
+      "apiFieldRequired": "{{field}}を入力してください",
+      "apiBaseUrlInvalid": "認証情報、クエリパラメータ、フラグメントを含まない完全な http:// または https:// URL を入力してください"
     },
     "instances": {
       "unsupported": "Grok CLI の複数インスタンスは macOS、Windows、Linux のみ対応しています。",
@@ -5115,7 +5985,8 @@
       "installHint": "ターミナルで次の公式コマンドを実行し、インストール完了後に更新してください。",
       "selectWorkingDir": "Grok CLI の作業ディレクトリを選択",
       "workingDirAccountHint": "作業ディレクトリはこのアカウントに紐づき、次回起動時に復元されます。",
-      "launchCommandPlaceholder": "作業ディレクトリを選択または確認すると起動コマンドを生成します"
+      "launchCommandPlaceholder": "作業ディレクトリを選択または確認すると起動コマンドを生成します",
+      "reauthLaunchHint": "アカウント認証の有効期限が切れました。再認証します。以下の起動コマンドは引き続き使用できます。"
     },
     "switch": {
       "success": "アカウントを切り替えました"
@@ -5336,7 +6207,13 @@
       "saveFailed": "アカウントメモの保存に失敗しました：{{error}}",
       "emptyTitle": "アカウントメモを入力",
       "short": "メモ",
-      "addShort": "メモ追加"
+      "addShort": "メモ追加",
+      "fingerprintModeLabel": "デバイス指紋モード",
+      "fingerprintModeHint": "OAuth のみ。既定はセッション。アカウントごとにインストール／セッションを分離し、ワークスペースを書き換えて同一端末の複数アカウントの紐付けを防ぎます。",
+      "fingerprintModeSession": "セッション（推奨）",
+      "fingerprintModeDevice": "デバイス",
+      "fingerprintModeFull": "完全",
+      "fingerprintModeOff": "オフ"
     },
     "account": {
       "signedInWith": "{{provider}} でログイン",
@@ -5398,5 +6275,23 @@
       "supports1mLabel": "1M 対応を宣言",
       "supports1mShort": "1M対応"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "OpenRouter の API キー、使用量、モデル一覧を管理します。",
+    "tabKeys": "キーと使用量",
+    "tabModels": "モデル",
+    "modelsLoaded": "{{count}} 件のモデルを読み込みました",
+    "noUsageYet": "使用量は未更新",
+    "loadModels": "モデルを読み込む",
+    "searchModels": "モデル検索",
+    "freeOnly": "無料のみ",
+    "noModels": "モデルがありません。Key を追加して読み込んでください。",
+    "free": "無料",
+    "noCtx": "コンテキスト長なし"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "OpenCode の Go/Zen API キーを管理し、ティアで絞り込みます。"
   }
 }
