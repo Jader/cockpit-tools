@@ -27,7 +27,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -51,7 +51,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -75,7 +75,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 🐹 Go setup
@@ -108,7 +108,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -189,7 +189,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies

@@ -34,7 +34,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
 
       - name: 📖 Read app version
         id: app_version
@@ -219,7 +219,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -355,7 +355,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -472,7 +472,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -590,7 +590,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -688,7 +688,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
           cache: "npm"
 
       - name: 📦 Install frontend dependencies
@@ -793,7 +793,7 @@ jobs:
       - name: ⚙️ Node.js setup
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.12.0
 
       - name: 📥 Download release metadata
         uses: actions/download-artifact@v4
