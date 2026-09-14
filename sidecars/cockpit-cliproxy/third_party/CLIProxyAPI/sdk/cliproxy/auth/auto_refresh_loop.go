@@ -20,8 +20,10 @@ type authAutoRefreshLoop struct {
 	index map[string]*refreshHeapItem
 	dirty map[string]struct{}
 
-	wakeCh chan struct{}
-	jobs   chan string
+	wakeCh  chan struct{}
+	jobs    chan string
+	done    chan struct{}
+	workers sync.WaitGroup
 }
 
 func newAuthAutoRefreshLoop(manager *Manager, interval time.Duration, concurrency int) *authAutoRefreshLoop {
@@ -43,6 +45,7 @@ func newAuthAutoRefreshLoop(manager *Manager, interval time.Duration, concurrenc
 		dirty:       make(map[string]struct{}),
 		wakeCh:      make(chan struct{}, 1),
 		jobs:        make(chan string, jobBuffer),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -63,19 +66,23 @@ func (l *authAutoRefreshLoop) run(ctx context.Context) {
 	if l == nil || l.manager == nil {
 		return
 	}
+	defer close(l.done)
 
 	workers := l.concurrency
 	if workers <= 0 {
 		workers = refreshMaxConcurrency
 	}
 	for i := 0; i < workers; i++ {
+		l.workers.Add(1)
 		go l.worker(ctx)
 	}
 
 	l.loop(ctx)
+	l.workers.Wait()
 }
 
 func (l *authAutoRefreshLoop) worker(ctx context.Context) {
+	defer l.workers.Done()
 	for {
 		select {
 		case <-ctx.Done():
