@@ -10,13 +10,16 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         access_scope: CodexLocalAccessScope::Localhost,
         client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
         image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+        image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
         image_generation_account_policies: HashMap::new(),
+        image_generation_account_ids: Vec::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
         upstream_proxy_url: None,
         routing_strategy: CodexLocalAccessRoutingStrategy::default(),
         custom_routing_rules: Vec::new(),
         account_model_rules: Vec::new(),
         model_aliases: Vec::new(),
+        suppress_oauth_model_alias: false,
         model_pricing_version: DEFAULT_MODEL_PRICING_VERSION,
         model_pricings: Vec::new(),
         excluded_models: Vec::new(),
@@ -34,6 +37,8 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         debug_logs: true,
         immediate_sse_response: false,
         max_concurrent_image_requests: 1,
+        max_account_concurrency: 0,
+        account_concurrency_wait_ms: DEFAULT_ACCOUNT_CONCURRENCY_WAIT_MS,
         bound_oauth_account_id: None,
         bound_oauth_quota_reserve: None,
         account_ids: Vec::new(),
@@ -203,6 +208,15 @@ pub async fn save_local_access_accounts(
             next_account_ids.push(account_id);
         }
     }
+    let removed_account_ids = collection
+        .account_ids
+        .iter()
+        .filter(|account_id| !next_account_ids.iter().any(|next| next == *account_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !removed_account_ids.is_empty() {
+        restore_removed_local_access_accounts(&removed_account_ids).await;
+    }
 
     collection.restrict_free_accounts = restrict_free_accounts;
     collection.account_ids = next_account_ids;
@@ -247,6 +261,7 @@ pub async fn save_local_access_accounts(
     {
         let mut runtime = gateway_runtime().lock().await;
         sync_runtime_collection(&mut runtime, collection);
+        sync_runtime_quota_cooldowns(&mut runtime, &accounts, now_ms());
     }
 
     if should_reload_gateway {
@@ -298,6 +313,7 @@ pub async fn append_local_access_accounts(
         {
             let mut runtime = gateway_runtime().lock().await;
             sync_runtime_collection(&mut runtime, collection);
+            sync_runtime_quota_cooldowns(&mut runtime, &accounts, now_ms());
         }
         if should_reload_gateway {
             trigger_gateway_reload_in_background("导入账号同步加入 API 服务");
@@ -523,6 +539,8 @@ pub async fn update_local_access_routing_options(
     disable_cooling: bool,
     immediate_sse_response: bool,
     max_concurrent_image_requests: u16,
+    max_account_concurrency: u16,
+    account_concurrency_wait_ms: u64,
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
 
@@ -552,6 +570,11 @@ pub async fn update_local_access_routing_options(
     collection.immediate_sse_response = immediate_sse_response;
     collection.max_concurrent_image_requests =
         max_concurrent_image_requests.clamp(1, MAX_CONCURRENT_IMAGE_REQUESTS_PER_ACCOUNT);
+    collection.max_account_concurrency = max_account_concurrency.min(MAX_ACCOUNT_CONCURRENCY_LIMIT);
+    collection.account_concurrency_wait_ms = account_concurrency_wait_ms.clamp(
+        ACCOUNT_CONCURRENCY_WAIT_MIN_MS,
+        ACCOUNT_CONCURRENCY_WAIT_MAX_MS,
+    );
     collection.updated_at = now_ms();
     save_collection_to_disk(&collection)?;
 
@@ -725,6 +748,41 @@ pub async fn update_local_access_debug_logs(
     snapshot_state().await
 }
 
+pub async fn update_local_access_image_generation_model(
+    image_generation_model: String,
+) -> Result<CodexLocalAccessState, String> {
+    let normalized_model = image_generation_model.trim().to_string();
+    if normalized_model.is_empty() {
+        return Err("codex.localAccess.imageGenerationModel.required".to_string());
+    }
+    if normalized_model.chars().count() > 200 {
+        return Err("codex.localAccess.imageGenerationModel.tooLong".to_string());
+    }
+    ensure_runtime_loaded().await?;
+
+    let maybe_collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+    let Some(mut collection) = maybe_collection else {
+        return Err("本地接入集合尚未创建".to_string());
+    };
+    if collection.image_generation_model != normalized_model {
+        collection.image_generation_model = normalized_model;
+        collection.updated_at = now_ms();
+        let collection_to_save = collection.clone();
+        tauri::async_runtime::spawn_blocking(move || save_collection_to_disk(&collection_to_save))
+            .await
+            .map_err(|error| format!("保存生图模型配置任务失败: {}", error))??;
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            sync_runtime_collection(&mut runtime, collection);
+        }
+    }
+    ensure_gateway_matches_runtime().await?;
+    snapshot_state().await
+}
+
 pub async fn update_local_access_scope(
     access_scope: CodexLocalAccessScope,
 ) -> Result<CodexLocalAccessState, String> {
@@ -814,6 +872,16 @@ pub async fn remove_deleted_accounts_from_local_access_pool(
         return Ok(());
     };
 
+    let removed_account_ids = collection
+        .account_ids
+        .iter()
+        .filter(|account_id| remove_ids.contains(*account_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !removed_account_ids.is_empty() {
+        restore_removed_local_access_accounts(&removed_account_ids).await;
+    }
+
     if !remove_account_refs_from_collection(&mut collection, &remove_ids) {
         return Ok(());
     }
@@ -862,6 +930,16 @@ pub async fn remove_local_access_accounts(
         .collect::<HashSet<_>>();
     if remove_ids.is_empty() {
         return snapshot_state().await;
+    }
+
+    let removed_account_ids = collection
+        .account_ids
+        .iter()
+        .filter(|account_id| remove_ids.contains(*account_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !removed_account_ids.is_empty() {
+        restore_removed_local_access_accounts(&removed_account_ids).await;
     }
 
     let refs_changed = remove_account_refs_from_collection(&mut collection, &remove_ids);
@@ -1300,11 +1378,14 @@ pub async fn kill_local_access_port_processes() -> Result<CodexLocalAccessPortCl
 
     stop_gateway().await;
 
-    let killed_count = match process::kill_port_processes(collection.port) {
+    let config_path = sidecar_config_path(&local_access_sidecar_dir()?);
+    let cleanup_result =
+        cleanup_managed_sidecar_port_processes(collection.port, config_path).await?;
+    let killed_count = match cleanup_result {
         Ok(count) => count as u32,
         Err(error) => {
             logger::log_codex_api_warn(&format!(
-                "[CodexLocalAccess] 清理旧端口进程失败，将继续尝试启动并准备随机端口兜底: port={}, error={}",
+                "[CodexLocalAccess] 未清理非本实例端口进程，将继续尝试启动并准备随机端口兜底: port={}, error={}",
                 collection.port, error
             ));
             0

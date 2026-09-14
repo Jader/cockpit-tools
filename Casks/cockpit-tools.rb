@@ -1,6 +1,6 @@
 cask "cockpit-tools" do
-  version "1.3.35"
-  sha256 "e294e96b8f3d412dd45e45c1e5caa74a443ebcbc1c5ab16006283ae2a08414ac"
+  version "1.3.51"
+  sha256 "05c6aeaf335b9e4784334003fad4bad037eb7fdf08e5e77498eccccafd6f12af"
 
   url "https://github.com/Jader/cockpit-tools/releases/download/v#{version}/Cockpit.Tools_#{version}_universal.dmg",
       verified: "github.com/Jader/cockpit-tools/"
@@ -10,13 +10,13 @@ cask "cockpit-tools" do
 
   auto_updates true
 
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-cr", "#{appdir}/Cockpit Tools.app"],
-                   sudo: true
-  end
-
   app "Cockpit Tools.app"
+
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args: ["-cr", "{{appdir}}/Cockpit Tools.app"],
+        sudo: true
+  end
 
   zap trash: [
     "~/Library/Application Support/com.jlcodes.cockpit-tools",

@@ -12,6 +12,7 @@ import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealthModal";
 import { CodexStatsRangePicker } from "../components/CodexStatsRangePicker";
+import { CodexUsageTrend } from "../components/codex/CodexUsageTrend";
 import { PaginationControls } from "../components/PaginationControls";
 import type {
   CodexLocalAccessCustomRoutingRule,
@@ -20,7 +21,6 @@ import type {
 import "./CodexApiServicePage.css";
 import type {
   CopyField,
-  RequestLogGatewayModeFilter,
   RequestLogKindFilter,
   RequestLogStatusFilter,
   useCodexApiServicePageController,
@@ -33,6 +33,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
   const {
     accessScope,
     accessScopeOptions,
+    accountConcurrencyWaitDraft,
     accountDisplayNames,
     accountModelMappingDrafts,
     accountModelMappingError,
@@ -84,11 +85,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     formatLatencyMs,
     formatRequestResultDetail,
     formatUsdCost,
-    gatewayModeLabel,
     groups,
     handleActivateService,
     handleApplyAccountModelRuleBulk,
     handleClearStats,
+    handleRefreshStatsDetails,
     handleCloseAccountModelMappings,
     handleCloseAccountModelRules,
     handleCloseTestDialog,
@@ -141,6 +142,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     mappingDraftsFromAccount,
     mappingMemberAccounts,
     maskAccountText,
+    maxAccountConcurrencyDraft,
     maxConcurrentImageRequestsDraft,
     maxRetryCredentialsDraft,
     maxRetryIntervalDraft,
@@ -176,13 +178,12 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     requestLogError,
     requestLogErrorQuery,
     requestLogEvents,
-    requestLogGatewayModeFilter,
-    requestLogGatewayModeOptions,
     requestLogInstanceOptions,
     requestLogInstanceQuery,
     requestLogKindFilter,
     requestLogKindOptions,
     requestLogLoading,
+    statsDetailsRefreshing,
     requestLogModelQuery,
     requestLogPageSize,
     requestLogRangeEnd,
@@ -211,12 +212,14 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     setAddressKind,
     setApiKeyDrafts,
     setApiKeyPolicyDrafts,
+    setAccountConcurrencyWaitDraft,
     setDisableCoolingDraft,
     setError,
     setExcludedModelsText,
     setHealthModalOpen,
     setImmediateSseResponseDraft,
     setKeyVisible,
+    setMaxAccountConcurrencyDraft,
     setMaxConcurrentImageRequestsDraft,
     setMaxRetryCredentialsDraft,
     setMaxRetryIntervalDraft,
@@ -229,7 +232,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     setRequestLogAccountQuery,
     setRequestLogApiKeyQuery,
     setRequestLogErrorQuery,
-    setRequestLogGatewayModeFilter,
     setRequestLogInstanceQuery,
     setRequestLogKindFilter,
     setRequestLogModelQuery,
@@ -511,41 +513,47 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           </div>
         )}
 
-        <section className="codex-api-service-usage-toolbar">
-          <div className="codex-api-service-usage-context">
-            <Activity size={16} />
-            <div>
-              <strong>
-                {t("codex.apiService.usage.title", "Usage Stats")}
-              </strong>
-              <span>
-                {selectedStatsRangeTitle}
-                {stats?.updatedAt
-                  ? ` · ${t("codex.apiService.usage.lastRecorded", "Last recorded")} ${formatDateTime(stats.updatedAt)}`
-                  : ""}
-              </span>
-            </div>
-          </div>
-          <CodexStatsRangePicker
-            value={statsRange}
-            range={statsTimeRange}
-            onPresetChange={handleStatsPresetChange}
-            onCustomApply={handleCustomStatsRangeApply}
-            disabled={busy}
-            error={statsRangeError}
-            compact
-          />
-        </section>
+        {activeTab === "logs" && (
+          <>
+            <section className="codex-api-service-usage-toolbar">
+              <div className="codex-api-service-usage-context">
+                <Activity size={16} />
+                <div>
+                  <strong>
+                    {t("codex.apiService.usage.title", "Usage Stats")}
+                  </strong>
+                  <span>
+                    {selectedStatsRangeTitle}
+                    {stats?.updatedAt
+                      ? ` · ${t("codex.apiService.usage.lastRecorded", "Last recorded")} ${formatDateTime(stats.updatedAt)}`
+                      : ""}
+                  </span>
+                </div>
+              </div>
+              <CodexStatsRangePicker
+                value={statsRange}
+                range={statsTimeRange}
+                onPresetChange={handleStatsPresetChange}
+                onCustomApply={handleCustomStatsRangeApply}
+                disabled={busy}
+                error={statsRangeError}
+                compact
+              />
+            </section>
 
-        <section className="codex-api-service-summary-grid">
-          {summaryCards.map((item) => (
-            <div key={item.key} className="codex-api-service-summary-card">
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-              <small>{item.detail}</small>
-            </div>
-          ))}
-        </section>
+            <section className="codex-api-service-summary-grid">
+              {summaryCards.map((item) => (
+                <div key={item.key} className="codex-api-service-summary-card">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                  <small>{item.detail}</small>
+                </div>
+              ))}
+            </section>
+
+            <CodexUsageTrend statsWindow={selectedStatsWindow} />
+          </>
+        )}
 
         {activeTab === "overview" && (
           <div className="codex-api-service-grid two">
@@ -843,7 +851,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           <section className="codex-api-service-panel">
             <div className="codex-api-service-panel-head">
               <h2>{t("codex.localAccess.apiKeysTitle", "客户端 Key")}</h2>
-              <div className="codex-api-service-head-actions">
+                <div className="codex-api-service-head-actions">
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
@@ -1890,6 +1898,42 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     disabled={busy || !collection}
                   />
                 </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.maxAccountConcurrency",
+                      "Account concurrency",
+                    )}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={64}
+                    value={maxAccountConcurrencyDraft}
+                    onChange={(event) =>
+                      setMaxAccountConcurrencyDraft(event.target.value)
+                    }
+                    disabled={busy || !collection}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.accountConcurrencyWait",
+                      "Concurrency wait (s)",
+                    )}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1800}
+                    value={accountConcurrencyWaitDraft}
+                    onChange={(event) =>
+                      setAccountConcurrencyWaitDraft(event.target.value)
+                    }
+                    disabled={busy || !collection}
+                  />
+                </label>
               </div>
             </section>
           </div>
@@ -2045,6 +2089,19 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 ))}
               </div>
               <div className="codex-api-service-head-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => void handleRefreshStatsDetails()}
+                  disabled={busy || statsDetailsRefreshing}
+                  title={t("codex.localAccess.refreshStats", "刷新统计")}
+                >
+                  <RefreshCw
+                    size={14}
+                    className={statsDetailsRefreshing ? "loading-spinner" : ""}
+                  />
+                  {t("common.refresh", "刷新")}
+                </button>
                 <button
                   type="button"
                   className="btn btn-danger btn-sm"
@@ -2311,24 +2368,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                   </label>
                   <label>
                     <span>
-                      {t("codex.apiService.logs.gatewayModeFilter", "Mode")}
-                    </span>
-                    <SingleSelectDropdown
-                      value={requestLogGatewayModeFilter}
-                      options={requestLogGatewayModeOptions}
-                      onChange={(value) =>
-                        setRequestLogGatewayModeFilter(
-                          value as RequestLogGatewayModeFilter,
-                        )
-                      }
-                      ariaLabel={t(
-                        "codex.apiService.logs.gatewayModeFilter",
-                        "Mode",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
                       {t("codex.apiService.logs.errorFilter", "Error")}
                     </span>
                     <input
@@ -2417,17 +2456,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               })}
                             </span>
                           ) : null}
-                          <span
-                            className={`codex-api-service-pill ${
-                              event.gatewayMode === "legacy"
-                                ? "mode-legacy"
-                                : event.gatewayMode === "sidecar"
-                                  ? "mode-sidecar"
-                                  : "muted"
-                            }`}
-                          >
-                            {gatewayModeLabel(event.gatewayMode, t)}
-                          </span>
                         </div>
                         <div>
                           <span>{formatDateTime(event.timestamp)}</span>
@@ -2549,7 +2577,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 <p className="codex-api-service-pricing-desc">
                   {t(
                     "codex.apiService.timeouts.desc",
-                    "单位为秒，保存后会按当前网关模式重启或重载 API 服务。",
+                    "单位为秒，保存后会重启或重载 API 服务。",
                   )}
                 </p>
               </div>
@@ -2649,7 +2677,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </section>
               <section className="codex-api-service-timeout-section">
                 <h3>
-                  {t("codex.apiService.timeouts.sidecarTitle", "新 API 服务")}
+                  {t("codex.apiService.timeouts.sidecarTitle", "流式超时")}
                 </h3>
                 <div className="codex-api-service-policy-grid">
                   <label>
@@ -4046,6 +4074,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               disableCooling: collection.disableCooling,
               immediateSseResponse: collection.immediateSseResponse,
               maxConcurrentImageRequests: collection.maxConcurrentImageRequests,
+              maxAccountConcurrency: collection.maxAccountConcurrency,
+              accountConcurrencyWaitMs: collection.accountConcurrencyWaitMs,
             });
             setState(next);
           }
@@ -4077,6 +4107,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
         onUpdateDebugLogs={(debugLogs) =>
           codexLocalAccessService
             .updateCodexLocalAccessDebugLogs(debugLogs)
+            .then(setState)
+        }
+        onUpdateImageGenerationModel={(model) =>
+          codexLocalAccessService
+            .updateCodexLocalAccessImageGenerationModel(model)
             .then(setState)
         }
         onUpdateUpstreamProxyConfig={(url) =>

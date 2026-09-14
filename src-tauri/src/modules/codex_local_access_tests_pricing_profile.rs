@@ -1035,6 +1035,24 @@
         assert_eq!(luna.input_usd_per_million, 0.2);
         assert_eq!(luna.output_usd_per_million, 1.2);
         assert_eq!(luna.cached_input_usd_per_million, Some(0.02));
+
+        let astra =
+            resolve_effective_model_pricing(None, Some("gpt-6-astra"), Some(&short_usage), None)
+                .expect("gpt-6-astra pricing");
+        assert_eq!(astra.input_usd_per_million, 10.0);
+        assert_eq!(astra.output_usd_per_million, 50.0);
+        assert_eq!(astra.cached_input_usd_per_million, Some(1.0));
+
+        let astra_long = resolve_effective_model_pricing(
+            None,
+            Some("gpt-6-astra"),
+            Some(&long_usage),
+            Some("priority"),
+        )
+        .expect("gpt-6-astra priority long pricing");
+        assert_eq!(astra_long.input_usd_per_million, 40.0);
+        assert_eq!(astra_long.output_usd_per_million, 150.0);
+        assert_eq!(astra_long.cached_input_usd_per_million, Some(4.0));
     }
 
     #[test]
@@ -1515,6 +1533,7 @@ supports_websockets = false
         let mixed_config = format!(
             r#"model = "gpt-5.5"
 custom_setting = "keep"
+experimental_realtime_ws_base_url = "http://127.0.0.1:14998/v1"
 model_provider = "codex_local_access"
 model_catalog_json = "{}"
 
@@ -1558,6 +1577,7 @@ supports_websockets = false
         );
         assert!(restored_doc.get("model_provider").is_none());
         assert!(restored_doc.get("model_catalog_json").is_none());
+        assert!(restored_doc.get("experimental_realtime_ws_base_url").is_none());
         assert_eq!(
             fs::read_to_string(profile_dir.join(CODEX_PROFILE_AUTH_FILE))
                 .expect("read refreshed auth"),
@@ -1692,7 +1712,7 @@ supports_websockets = false
             .expect("save partial takeover backup");
         fs::write(
             profile_dir.join(CODEX_PROFILE_CONFIG_FILE),
-            "model_provider = \"codex_local_access\"\n",
+            "model_provider = \"codex_local_access\"\nexperimental_realtime_ws_base_url = \"http://localhost:14998/v1\"\n",
         )
         .expect("write partial config");
         fs::write(

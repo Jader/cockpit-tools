@@ -11,10 +11,6 @@ export interface CodexExperimentalModelDefinition {
   display_name: string;
   /** undefined follows the official model reasoning levels; otherwise custom multi-select. */
   reasoning_efforts?: CodexReasoningEffort[];
-  /** undefined follows the model catalog metadata. */
-  context_window?: number;
-  /** undefined follows the model catalog metadata. */
-  auto_compact_token_limit?: number;
 }
 
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
@@ -30,6 +26,10 @@ export interface CodexQuickConfig {
   experimental_model_catalog_conflict?: string;
   experimental_model_catalog_models: CodexExperimentalModelDefinition[];
   experimental_model_catalog_default_model_id?: string | null;
+  experimental_model_catalog_reset_models: CodexExperimentalModelDefinition[];
+  experimental_model_catalog_reset_default_model_id?: string | null;
+  /** Official Codex experimental context management; absent/false follows the official default. */
+  context_management_experimental_mode: boolean;
 }
 
 export type CodexAppSpeed = "standard" | "fast";
@@ -61,6 +61,8 @@ export interface CodexAccount {
   api_vision_routing_model?: string | null;
   api_instance_access_mode?: "gateway" | "direct" | "cdp" | string | null;
   api_startup_model?: string | null;
+  /** 网关模式下用于生图转发的 GPT(OAuth) 账号池。 */
+  api_image_generation_account_ids?: string[] | null;
   bound_oauth_account_id?: string | null;
   user_id?: string;
   plan_type?: string;
@@ -76,8 +78,11 @@ export interface CodexAccount {
   account_name?: string;
   account_structure?: string;
   account_note?: string;
+  /** Legacy import/export metadata; no longer changes outgoing requests. */
   codex_fingerprint_mode?: CodexFingerprintMode;
+  /** Legacy backup metadata; no longer restricts clients or reaches the sidecar. */
   codex_cli_only?: boolean;
+  /** Legacy backup metadata; no longer grants client-policy exceptions. */
   codex_cli_only_allow_app_server?: boolean;
   two_factor_secret?: string;
   account_password?: string;
@@ -97,6 +102,15 @@ export interface CodexAccount {
   last_client_launch_at?: number | null;
   last_client_auth_instance_id?: string | null;
   quota?: CodexQuota;
+  team_quota_history?: {
+    user_id: string;
+    account_id: string;
+    observed_at: number;
+    hourly_reset_time?: number | null;
+    weekly_reset_time?: number | null;
+    hourly_percentage?: number | null;
+    weekly_percentage?: number | null;
+  };
   quota_error?: CodexQuotaErrorInfo;
   tags?: string[];
   created_at: number;

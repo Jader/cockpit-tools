@@ -33,6 +33,7 @@
             Some("unauthorized")
         );
         assert!(super::sidecar_scheduler_blocks_account(Some(health), now));
+        assert!(super::account_health_blocks_dispatch(Some(health), now));
         assert_eq!(runtime.model_cooldowns.len(), 1);
     }
 
@@ -93,6 +94,7 @@
             Some(health),
             later
         ));
+        assert!(!super::account_health_blocks_dispatch(Some(health), later));
         assert!(runtime.model_cooldowns.is_empty());
     }
 
@@ -155,6 +157,29 @@
     }
 
     #[test]
+    fn manual_recovery_removes_only_selected_pool_member_status() {
+        let mut runtime = super::GatewayRuntime::default();
+        let mut pool = super::RuntimeAccountPoolHealth::default();
+        pool.account_statuses = vec![
+            super::RuntimeAccountPoolMemberHealth {
+                account_id: "account-1".to_string(),
+                ..Default::default()
+            },
+            super::RuntimeAccountPoolMemberHealth {
+                account_id: "account-2".to_string(),
+                ..Default::default()
+            },
+        ];
+        runtime.account_pool_health.insert("key-1".to_string(), pool);
+
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
+
+        let remaining = &runtime.account_pool_health["key-1"].account_statuses;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].account_id, "account-2");
+    }
+
+    #[test]
     fn manual_recovery_clears_only_selected_runtime_account_health() {
         let mut runtime = super::GatewayRuntime::default();
         runtime.account_health.insert(
@@ -178,12 +203,146 @@
             super::RuntimeAccountPoolHealth::default(),
         );
 
-        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
 
         assert!(!runtime.account_health.contains_key("account-1"));
         assert!(runtime.account_health.contains_key("account-2"));
         assert!(runtime.model_cooldowns.is_empty());
+        assert!(runtime.account_pool_health.contains_key("key-1"));
+    }
+
+    #[test]
+    fn full_manual_recovery_clears_aggregate_pool_health() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_pool_health.insert(
+            "key-1".to_string(),
+            super::RuntimeAccountPoolHealth::default(),
+        );
+
+        super::clear_runtime_account_health(
+            &mut runtime,
+            &["account-1".to_string(), "account-2".to_string()],
+            true,
+        );
+
         assert!(runtime.account_pool_health.is_empty());
+    }
+
+    #[test]
+    fn quota_exhaustion_blocks_dispatch_until_reset_or_recovery() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_quota_cooldowns.insert(
+            "account-1".to_string(),
+            super::AccountQuotaCooldown {
+                exhausted: true,
+                reset_at_ms: Some(2_000_000),
+                updated_at_ms: 1_000_000,
+            },
+        );
+
+        assert!(super::account_recovery_blocked_by_quota(&runtime, "account-1", 1_500_000));
+        assert!(!super::account_recovery_blocked_by_quota(&runtime, "account-1", 2_000_000));
+
+        super::mark_quota_cooldowns_recovered(
+            &mut runtime,
+            &["account-1".to_string()],
+            1_750_000,
+        );
+        assert!(!super::account_recovery_blocked_by_quota(&runtime, "account-1", 1_800_000));
+        let recovered = runtime.account_quota_cooldowns.get("account-1").expect("recovered snapshot");
+        assert!(!recovered.active(1_800_000));
+        assert_eq!(recovered.updated_at_ms, 1_750_000);
+    }
+
+    #[test]
+    fn removing_accounts_clears_runtime_health_and_quota_cooldown() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_health.insert(
+            "account-1".to_string(),
+            super::RuntimeAccountHealth::default(),
+        );
+        runtime.account_quota_cooldowns.insert(
+            "account-1".to_string(),
+            super::AccountQuotaCooldown {
+                exhausted: true,
+                reset_at_ms: None,
+                updated_at_ms: 1_000_000,
+            },
+        );
+        runtime.account_quota_cooldowns.insert(
+            "account-2".to_string(),
+            super::AccountQuotaCooldown {
+                exhausted: true,
+                reset_at_ms: None,
+                updated_at_ms: 1_000_000,
+            },
+        );
+
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
+        super::clear_runtime_quota_cooldowns(&mut runtime, &["account-1".to_string()]);
+
+        assert!(!runtime.account_health.contains_key("account-1"));
+        assert!(!runtime.account_quota_cooldowns.contains_key("account-1"));
+        assert!(runtime.account_quota_cooldowns.contains_key("account-2"));
+    }
+
+    fn oauth_account_with_quota(
+        hourly: i32,
+        weekly: i32,
+        raw_data: Option<serde_json::Value>,
+    ) -> CodexAccount {
+        let mut account = test_account_with_plan("free");
+        account.quota = Some(crate::models::codex::CodexQuota {
+            hourly_percentage: hourly,
+            hourly_reset_time: None,
+            hourly_window_minutes: None,
+            hourly_window_present: Some(true),
+            weekly_percentage: weekly,
+            weekly_reset_time: None,
+            weekly_window_minutes: None,
+            weekly_window_present: Some(true),
+            reset_credits_available: None,
+            reset_credits: Vec::new(),
+            reset_credits_next_expires_at: None,
+            raw_data,
+        });
+        account.usage_updated_at = Some(1_700);
+        account
+    }
+
+    #[test]
+    fn remaining_credits_keep_zero_window_accounts_out_of_quota_cooldown() {
+        let now = 1_800_000_i64;
+        let credit_account = oauth_account_with_quota(
+            0,
+            0,
+            Some(serde_json::json!({
+                "credits": { "balance": "351.02", "remaining": 351.02, "unlimited": false }
+            })),
+        );
+        let cooldown = super::account_quota_cooldown(&credit_account, now)
+            .expect("credit account should produce a cooldown snapshot");
+        assert!(!cooldown.exhausted);
+        assert_eq!(super::resolve_remaining_quota(&credit_account), Some(1));
+
+        let spend_control_account = oauth_account_with_quota(
+            0,
+            0,
+            Some(serde_json::json!({
+                "spend_control": {
+                    "individual_limit": { "limit": "400", "used": "48.98", "remaining": "351.02" }
+                }
+            })),
+        );
+        let spend_cooldown = super::account_quota_cooldown(&spend_control_account, now)
+            .expect("spend-control credits should keep the account schedulable");
+        assert!(!spend_cooldown.exhausted);
+
+        let exhausted_account = oauth_account_with_quota(0, 0, None);
+        let exhausted = super::account_quota_cooldown(&exhausted_account, now)
+            .expect("zero windows without credits should be exhausted");
+        assert!(exhausted.exhausted);
+        assert_eq!(super::resolve_remaining_quota(&exhausted_account), Some(0));
     }
 
     #[test]
@@ -479,6 +638,7 @@
         build_model_provider_gateway_test_collection, build_ordered_account_ids,
         build_request_routing_hint, build_runtime_account, build_upstream_websocket_url,
         calculate_usage_cost_usd, calendar_stats_window_starts, canonical_model_for_client_model,
+        account_has_gpt_reserve_entitlement,
         classify_upstream_error_category, cleanup_profile_takeover_without_backup,
         cleanup_provider_gateway_profile_model_overrides, codex_price,
         collect_local_access_profile_takeover_dirs_from_store, compare_routing_candidates,
@@ -535,7 +695,8 @@
         tool_declares_image_generation_capability, usage_event_from_row,
         validate_api_key_account_scope_update, validate_client_model_visible,
         validate_loaded_local_access_bound_oauth_account, visible_codex_model_ids_for_api_key,
-        visible_codex_model_ids_for_api_key_with_accounts, websocket_accept_value,
+        visible_codex_model_ids_for_api_key_with_accounts,
+        visible_codex_model_ids_for_api_key_with_supported_models, websocket_accept_value,
         websocket_connect_error_from_http_response, windows_proxy_url_from_server,
         windows_reg_dword_enabled, windows_reg_query_map,
         write_local_access_profile_model_override, write_local_access_profile_takeover,
@@ -545,13 +706,16 @@
         ParsedRequest, ResolvedLocalApiKey, ResponseUsageCollector, RoutingCandidate,
         SidecarUsageDetails, SidecarUsageEvent, UsageCapture,
         BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS, CODEX_AUTO_REVIEW_MODEL_ID,
+        CODEX_GPT_RESERVE_MODEL_ID,
         CODEX_IMAGEGEN_ACTOR_HEADER, CODEX_IMAGE_MODEL_ID,
+        DEFAULT_CODEX_IMAGE_GENERATION_MODEL,
         CODEX_LEGACY_LOCAL_ACCESS_MODEL_CATALOG_FILE, CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE,
         CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
         CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE,
         CODEX_LOCAL_ACCESS_MODEL_CATALOG_FILE, CODEX_PROFILE_AUTH_FILE, CODEX_PROFILE_CONFIG_FILE,
         CODEX_PROVIDER_MODEL_BACKUP_FILE, CODEX_PROVIDER_MODEL_CATALOG_FILE,
-        DEFAULT_MAX_RETRY_INTERVAL_MS, DEFAULT_MODEL_PRICING_VERSION,
+        DEFAULT_ACCOUNT_CONCURRENCY_WAIT_MS, DEFAULT_MAX_RETRY_INTERVAL_MS,
+        DEFAULT_MODEL_PRICING_VERSION,
         DEFAULT_SESSION_AFFINITY_TTL_MS, MAX_HTTP_REQUEST_BYTES,
         STATE_RECENT_USAGE_EVENT_LIMIT,
     };
@@ -802,13 +966,16 @@
             access_scope: CodexLocalAccessScope::Localhost,
             client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
             image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+            image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
             image_generation_account_policies: HashMap::new(),
+            image_generation_account_ids: Vec::new(),
             gateway_mode: CodexLocalAccessGatewayMode::default(),
             upstream_proxy_url: None,
             routing_strategy: CodexLocalAccessRoutingStrategy::default(),
             custom_routing_rules: Vec::new(),
             account_model_rules: Vec::new(),
             model_aliases: Vec::new(),
+            suppress_oauth_model_alias: false,
             model_pricing_version: DEFAULT_MODEL_PRICING_VERSION,
             model_pricings: Vec::new(),
             excluded_models: Vec::new(),
@@ -826,12 +993,62 @@
             debug_logs: true,
             immediate_sse_response: false,
             max_concurrent_image_requests: 1,
+            max_account_concurrency: 0,
+            account_concurrency_wait_ms: DEFAULT_ACCOUNT_CONCURRENCY_WAIT_MS,
             bound_oauth_account_id: None,
             bound_oauth_quota_reserve: None,
             account_ids,
             created_at: 0,
             updated_at: 0,
         }
+    }
+
+    #[test]
+    fn provider_gateway_model_aliases_stay_off_the_oauth_channel() {
+        let dir = make_temp_dir("codex-provider-gateway-alias");
+        let mut collection = test_local_access_collection(vec!["provider-account".to_string()]);
+        collection.model_aliases = vec![super::CodexLocalAccessModelAlias {
+            source_model: "deepseek-flash".to_string(),
+            alias: "gpt-5.5".to_string(),
+            fork: false,
+        }];
+        // 实例供应商网关会标记该字段：别名只用于对话改写，不能写进 OAuth 通道。
+        collection.suppress_oauth_model_alias = true;
+
+        super::prepare_sidecar_launch_config_in_dir_sync(
+            &collection,
+            dir.clone(),
+            HashMap::new(),
+            None,
+            HashMap::new(),
+            true,
+            None,
+        )
+        .expect("prepare provider gateway sidecar config");
+
+        let config: Value = serde_json::from_str(
+            &fs::read_to_string(super::sidecar_config_path(&dir)).expect("read sidecar config"),
+        )
+        .expect("parse sidecar config");
+        assert!(
+            config.get("oauth-model-alias").is_none(),
+            "provider gateway must not rewrite models on the OAuth channel: {config}"
+        );
+
+        let manifest: Value = serde_json::from_str(
+            &fs::read_to_string(super::sidecar_manifest_path(&dir)).expect("read sidecar manifest"),
+        )
+        .expect("parse sidecar manifest");
+        assert_eq!(
+            manifest
+                .get("modelAliases")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1),
+            "client-visible model aliases must stay in the manifest"
+        );
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -848,6 +1065,7 @@
             HashMap::new(),
             None,
             HashMap::new(),
+            true,
             Some(super::GatewayPreparationContext {
                 generation: current_generation.wrapping_add(1),
                 total: 1,
@@ -1026,6 +1244,37 @@
             enabled.get("responsesWebsockets").and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn sidecar_manifest_exposes_image_generation_accounts() {
+        let mut collection = test_local_access_collection(vec!["chat-account".to_string()]);
+        let mut api_key = build_local_access_api_key(Some("DeepSeek"));
+        api_key.key = "deepseek-key".to_string();
+        api_key.inherit_account_pool = Some(false);
+        api_key.account_ids = vec!["chat-account".to_string()];
+        collection.api_keys = vec![api_key];
+        collection.image_generation_account_ids =
+            vec!["gpt-image-account".to_string(), "gpt-image-account".to_string()];
+
+        let manifest_values = sidecar_api_key_manifest_values(&collection);
+        let scoped = manifest_values
+            .iter()
+            .find(|value| value.get("key").and_then(Value::as_str) == Some("deepseek-key"))
+            .expect("provider gateway key should be emitted");
+        let image_account_ids = scoped
+            .get("imageGenerationAccountIds")
+            .and_then(Value::as_array)
+            .expect("imageGenerationAccountIds should be an array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(image_account_ids, vec!["gpt-image-account"]);
+
+        // 生图账号不参与对话路由，但必须进入 sidecar 账号清单以写入凭据。
+        assert!(super::effective_sidecar_account_ids(&collection)
+            .iter()
+            .any(|account_id| account_id == "gpt-image-account"));
     }
 
     #[test]
@@ -1600,6 +1849,18 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
                 ("gpt-5.5", "gpt-5.5"),
                 ("gpt-5.6-terra", "grok-4.5"),
             ]
+        );
+    }
+
+    #[test]
+    fn provider_gateway_model_slots_keep_identity_for_gpt_6_astra() {
+        let slots = provider_gateway_model_slots(&["gpt-6-astra".to_string()]);
+        assert_eq!(
+            slots,
+            vec![super::ProviderGatewayModelSlot {
+                client_model: "gpt-6-astra".to_string(),
+                upstream_model: "gpt-6-astra".to_string(),
+            }]
         );
     }
 
@@ -2651,6 +2912,118 @@ http_headers = { "x-cockpit-instance-id" = "default" }
     }
 
     #[test]
+    fn gpt_reserve_entitlement_requires_an_allowed_additional_rate_limit() {
+        let mut account = test_account_with_plan("pro");
+        account.quota = Some(CodexQuota {
+            hourly_percentage: 100,
+            hourly_reset_time: None,
+            hourly_window_minutes: Some(300),
+            hourly_window_present: Some(true),
+            weekly_percentage: 100,
+            weekly_reset_time: None,
+            weekly_window_minutes: Some(10_080),
+            weekly_window_present: Some(true),
+            reset_credits_available: None,
+            reset_credits: Vec::new(),
+            reset_credits_next_expires_at: None,
+            raw_data: Some(json!({
+                "additional_rate_limits": [{
+                    "limit_name": "GPT-Reserve",
+                    "rate_limit": { "allowed": true }
+                }],
+                "rate_limit": { "allowed": false },
+                "rate_limit_upsell": { "banner_type": "luna_reserve" }
+            })),
+        });
+        assert!(account_has_gpt_reserve_entitlement(&account));
+        let valid = account.quota.as_ref().unwrap().raw_data.clone().unwrap();
+        for (regular_allowed, reserve_allowed, banner) in [
+            (true, true, "luna_reserve"),
+            (false, false, "luna_reserve"),
+            (false, true, "upgrade"),
+        ] {
+            let mut raw = valid.clone();
+            raw["rate_limit"]["allowed"] = json!(regular_allowed);
+            raw["additional_rate_limits"][0]["rate_limit"]["allowed"] = json!(reserve_allowed);
+            raw["rate_limit_upsell"]["banner_type"] = json!(banner);
+            account.quota.as_mut().unwrap().raw_data = Some(raw);
+            assert!(!account_has_gpt_reserve_entitlement(&account),
+                "must reject regular={regular_allowed}, reserve={reserve_allowed}, banner={banner}");
+        }
+        account.quota.as_mut().unwrap().raw_data = Some(valid.clone());
+        account.auth_mode = crate::models::codex::CodexAuthMode::Apikey;
+        assert!(!account_has_gpt_reserve_entitlement(&account));
+        account.quota.as_mut().unwrap().raw_data = None;
+        assert!(!account_has_gpt_reserve_entitlement(&account));
+    }
+
+    #[test]
+    fn api_service_model_list_keeps_reserve_without_eligible_accounts() {
+        let mut entitled = test_account_with_plan("pro");
+        entitled.id = "reserve-entitled".to_string();
+        entitled.quota = Some(CodexQuota {
+            hourly_percentage: 100,
+            hourly_reset_time: None,
+            hourly_window_minutes: Some(300),
+            hourly_window_present: Some(true),
+            weekly_percentage: 100,
+            weekly_reset_time: None,
+            weekly_window_minutes: Some(10_080),
+            weekly_window_present: Some(true),
+            reset_credits_available: None,
+            reset_credits: Vec::new(),
+            reset_credits_next_expires_at: None,
+            raw_data: Some(json!({
+                "additional_rate_limits": [{
+                    "limit_name": "GPT reserve",
+                    "rate_limit": { "allowed": true }
+                }],
+                "rate_limit": { "allowed": false },
+                "rate_limit_upsell": { "banner_type": "luna_reserve" }
+            })),
+        });
+        let mut ordinary = entitled.clone();
+        ordinary.id = "reserve-ordinary".to_string();
+        ordinary.quota.as_mut().unwrap().raw_data = Some(json!({
+            "additional_rate_limits": []
+        }));
+
+        let mut collection = test_local_access_collection(vec![entitled.id.clone()]);
+        let api_key = ResolvedLocalApiKey {
+            id: "reserve-key".to_string(),
+            label: "Reserve".to_string(),
+            provider_gateway: None,
+            inherit_account_pool: true,
+            account_ids: Vec::new(),
+            model_prefix: None,
+            allowed_models: Vec::new(),
+            excluded_models: Vec::new(),
+            token_limit: None,
+            token_used: 0,
+        };
+        let entitled_models = visible_codex_model_ids_for_api_key_with_accounts(
+            &collection,
+            &api_key,
+            &[entitled.clone(), ordinary.clone()],
+            None,
+        );
+        assert!(entitled_models
+            .iter()
+            .any(|model| model.eq_ignore_ascii_case(CODEX_GPT_RESERVE_MODEL_ID)));
+
+        collection.account_ids = vec![ordinary.id.clone()];
+        let ordinary_models = visible_codex_model_ids_for_api_key_with_accounts(
+            &collection,
+            &api_key,
+            &[entitled, ordinary],
+            None,
+        );
+        assert!(ordinary_models
+            .iter()
+            .any(|model| model.eq_ignore_ascii_case(CODEX_GPT_RESERVE_MODEL_ID)));
+    }
+
+    #[test]
     fn scoped_api_key_pool_discovers_spark_entitlement_from_effective_accounts() {
         let mut plus = test_account_with_plan("plus");
         plus.id = "scoped-plus".to_string();
@@ -2708,6 +3081,7 @@ http_headers = { "x-cockpit-instance-id" = "default" }
             HashMap::new(),
             None,
             overrides,
+            true,
             None,
         )
         .expect("prepare scoped sidecar config");
@@ -3032,6 +3406,35 @@ http_headers = { "x-cockpit-instance-id" = "default" }
             enabled_auth_json.get("websockets").and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn sidecar_projection_ignores_legacy_fingerprint_without_mutating_account() {
+        for mode in [None, Some("off"), Some("device"), Some("session"), Some("full")] {
+            let mut account = CodexAccount::new(
+                "legacy-fingerprint".into(),
+                "legacy@example.com".into(),
+                CodexTokens {
+                    id_token: String::new(),
+                    access_token: "access-token".into(),
+                    refresh_token: Some("refresh-token".into()),
+                },
+            );
+            account.codex_fingerprint_mode = mode.map(str::to_string);
+            account.codex_cli_only = true;
+            account.codex_cli_only_allow_app_server = true;
+            let collection = test_local_access_collection(vec![account.id.clone()]);
+            let projected = sidecar_auth_json_for_account(&account, &collection, None);
+            assert!(projected.get("codex_fingerprint_mode").is_none());
+            assert!(projected.get("codex_cli_only").is_none());
+            assert!(projected.get("codex_cli_only_allow_app_server").is_none());
+            assert!(projected.get("codex_cli_only_allow_app_server_clients").is_none());
+            assert_eq!(account.codex_fingerprint_mode.as_deref(), mode);
+            assert!(account.codex_cli_only);
+            assert!(account.codex_cli_only_allow_app_server);
+            assert_eq!(account.tokens.refresh_token.as_deref(), Some("refresh-token"));
+            assert_eq!(projected["refresh_owner"], "cockpit_token_authority");
+        }
     }
 
     #[test]

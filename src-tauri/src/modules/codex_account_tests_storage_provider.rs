@@ -225,6 +225,35 @@
         assert_eq!(normalized.routes[0].namespace, "cpa");
         assert_eq!(normalized.routes[0].provider_account_id, api_account.id);
 
+        let legacy_internal_namespace = crate::models::CodexInstanceModelRouting {
+            routes: vec![crate::models::CodexInstanceApiRoute {
+                namespace: "__provider_gateway__".to_string(),
+                ..routing.routes[0].clone()
+            }],
+            ..routing.clone()
+        };
+        let normalized_legacy =
+            crate::modules::codex_local_access::validate_mixed_model_routing_config(
+                Some(&oauth_account.id),
+                &legacy_internal_namespace,
+            )
+            .expect("migrate legacy provider gateway namespace");
+        assert_eq!(normalized_legacy.routes[0].namespace, "api");
+
+        let mut gateway_api_account = api_account.clone();
+        gateway_api_account.bound_oauth_account_id = Some(oauth_account.id.clone());
+        save_account(&gateway_api_account).expect("save provider gateway API account");
+        let provider_gateway_bind_id =
+            crate::modules::codex_instance::provider_gateway_bind_account_id(
+                &gateway_api_account.id,
+            )
+            .expect("provider gateway bind id");
+        crate::modules::codex_local_access::validate_mixed_model_routing_config(
+            Some(&provider_gateway_bind_id),
+            &routing,
+        )
+        .expect("resolve provider gateway binding to its OAuth account");
+
         let empty_selection = crate::models::CodexInstanceModelRouting {
             routes: vec![crate::models::CodexInstanceApiRoute {
                 selected_models: Some(Vec::new()),
@@ -795,6 +824,49 @@ X-Custom = "keep-me"
         );
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn migrates_legacy_apikey_fun_provider_base_url_and_wire_api() {
+        let mut account = CodexAccount::new_api_key(
+            "legacy-apikey-account-id".to_string(),
+            "relay@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://api.apikey.fun/v1".to_string()),
+            Some("apikey_fun".to_string()),
+            Some("APIKEY.FUN".to_string()),
+            vec!["gpt-5.5".to_string()],
+        );
+        account.api_wire_api = Some("chat_completions".to_string());
+
+        assert!(migrate_apikey_fun_account(&mut account));
+        assert_eq!(
+            account.api_base_url.as_deref(),
+            Some("https://api.apikey.fan/v1")
+        );
+        assert_eq!(account.api_wire_api.as_deref(), Some("responses"));
+    }
+
+    #[test]
+    fn keeps_current_apikey_fan_provider_base_url() {
+        let mut account = CodexAccount::new_api_key(
+            "current-apikey-account-id".to_string(),
+            "relay@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://api.apikey.fan/v1".to_string()),
+            Some("apikey_fun".to_string()),
+            Some("APIKEY.FUN".to_string()),
+            vec!["gpt-5.5".to_string()],
+        );
+        account.api_wire_api = Some("responses".to_string());
+
+        assert!(!migrate_apikey_fun_account(&mut account));
+        assert_eq!(
+            account.api_base_url.as_deref(),
+            Some("https://api.apikey.fan/v1")
+        );
     }
 
     #[test]

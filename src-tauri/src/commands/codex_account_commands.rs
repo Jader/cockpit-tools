@@ -669,6 +669,43 @@ fn repair_codex_session_visibility_after_credential_kind_change(
     ));
 }
 
+/// 切到官方直连账号时，清理历史里第三方（DeepSeek 等）留下的 reasoning 项，
+/// 避免官方后端因 `reasoning.content` 非空拒绝整段请求（普通回合与自动压缩都会失败）。
+async fn sanitize_session_history_after_codex_switch(account: &CodexAccount) {
+    if crate::modules::codex_local_access::account_requires_provider_gateway(account) {
+        return;
+    }
+    let data_dir = codex_account::get_codex_home();
+    let started = Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::modules::codex_session_history_sanitize::sanitize_official_incompatible_reasoning_history(
+            &data_dir,
+        )
+    })
+    .await;
+    match result {
+        Ok(Ok(summary)) => {
+            if summary.changed_anything() {
+                logger::log_info(&format!(
+                    "[Codex History Sanitize] 切号后清理第三方推理历史完成: databases={}, updated_items={}, changed_threads={}, elapsed_ms={}",
+                    summary.database_count,
+                    summary.updated_item_count,
+                    summary.changed_thread_count,
+                    started.elapsed().as_millis()
+                ));
+            }
+        }
+        Ok(Err(error)) => logger::log_warn(&format!(
+            "[Codex History Sanitize] 切号后清理第三方推理历史失败: error={}",
+            error
+        )),
+        Err(error) => logger::log_warn(&format!(
+            "[Codex History Sanitize] 等待会话历史清理任务失败: error={}",
+            error
+        )),
+    }
+}
+
 fn restart_codex_specified_app_if_enabled(user_config: &config::UserConfig) {
     if !user_config.codex_restart_specified_app_on_switch {
         logger::log_info("已关闭切换 Codex 时自动重启指定应用");
@@ -751,6 +788,20 @@ pub async fn get_codex_quick_config() -> Result<CodexQuickConfig, String> {
     tauri::async_runtime::spawn_blocking(codex_account::load_current_quick_config)
         .await
         .map_err(|error| format!("读取 Codex 快捷配置后台任务失败: {}", error))?
+}
+
+#[tauri::command]
+pub async fn save_codex_context_management(
+    experimental_mode: bool,
+) -> Result<CodexQuickConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        codex_account::save_context_management_for_base_dir(
+            &codex_account::get_codex_home(),
+            experimental_mode,
+        )
+    })
+    .await
+    .map_err(|error| format!("保存 Codex 上下文管理开关后台任务失败: {}", error))?
 }
 
 #[tauri::command]
@@ -1164,7 +1215,11 @@ pub async fn switch_codex_account(
     if is_reauth_handoff {
         let quota_account_id = account.id.clone();
         tokio::spawn(async move {
-            if let Err(error) = codex_quota::refresh_account_quota(&quota_account_id).await {
+            if let Err(error) = Box::pin(codex_quota::refresh_account_quota_background(
+                &quota_account_id,
+            ))
+            .await
+            {
                 logger::log_warn(&format!(
                     "重新授权切号完成后刷新配额失败: account_id={}, error={}",
                     quota_account_id, error
@@ -1217,6 +1272,15 @@ pub async fn switch_codex_account(
         "[Codex Switch][Backend] session visibility repair stage finished: account_id={}, elapsed_ms={}, total_ms={}",
         account_id,
         repair_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
+
+    let history_sanitize_started = Instant::now();
+    sanitize_session_history_after_codex_switch(&account).await;
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] session history sanitize stage finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        history_sanitize_started.elapsed().as_millis(),
         flow_started.elapsed().as_millis()
     ));
 
@@ -1448,7 +1512,15 @@ async fn run_codex_post_refresh_checks(app: &AppHandle) {
     match codex_account::pick_auto_switch_target_if_needed() {
         Ok(Some(target)) => {
             let target_id = target.id.clone();
-            match switch_codex_account(app.clone(), target_id.clone(), None, None, None).await
+            // Keep the large switch state machine out of the post-refresh Future.
+            match Box::pin(switch_codex_account(
+                app.clone(),
+                target_id.clone(),
+                None,
+                None,
+                None,
+            ))
+            .await
             {
                 Ok(switched_account) => {
                     logger::log_info(&format!(
@@ -1641,7 +1713,7 @@ async fn refresh_imported_codex_accounts(
         }
 
         attempted = true;
-        match codex_quota::refresh_account_quota(&account.id).await {
+        match Box::pin(codex_quota::refresh_account_quota(&account.id)).await {
             Ok(_) => {
                 success_count += 1;
             }
@@ -1657,7 +1729,7 @@ async fn refresh_imported_codex_accounts(
     }
 
     if success_count > 0 {
-        run_codex_post_refresh_checks(app).await;
+        Box::pin(run_codex_post_refresh_checks(app)).await;
     }
     if attempted || !result.is_empty() {
         let _ = crate::modules::tray::update_tray_menu(app);
@@ -1774,9 +1846,12 @@ pub async fn confirm_codex_batch_import(
 /// 刷新单个账号配额
 #[tauri::command]
 pub async fn refresh_codex_quota(app: AppHandle, account_id: String) -> Result<CodexQuota, String> {
-    let result = codex_quota::refresh_account_quota(&account_id).await;
+    // Box child Futures before awaiting them: boxing only the outer spawned IPC
+    // task still constructs/moves its large inline state machine on the stack.
+    // Keep the async command signature so Tauri uses its existing async wrapper.
+    let result = Box::pin(codex_quota::refresh_account_quota(&account_id)).await;
     if result.is_ok() {
-        run_codex_post_refresh_checks(&app).await;
+        Box::pin(run_codex_post_refresh_checks(&app)).await;
         let _ = crate::modules::tray::update_tray_menu(&app);
     }
     result
@@ -1823,9 +1898,9 @@ pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let result = codex_quota::refresh_account_quota(&account.id).await;
+    let result = Box::pin(codex_quota::refresh_account_quota(&account.id)).await;
     if result.is_ok() {
-        run_codex_post_refresh_checks(&app).await;
+        Box::pin(run_codex_post_refresh_checks(&app)).await;
         let _ = crate::modules::tray::update_tray_menu(&app);
         Ok(())
     } else {
@@ -1838,10 +1913,10 @@ pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
 /// 刷新所有账号配额
 #[tauri::command]
 pub async fn refresh_all_codex_quotas(app: AppHandle) -> Result<i32, String> {
-    let results = codex_quota::refresh_all_quotas().await?;
+    let results = Box::pin(codex_quota::refresh_all_quotas()).await?;
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
     if success_count > 0 {
-        run_codex_post_refresh_checks(&app).await;
+        Box::pin(run_codex_post_refresh_checks(&app)).await;
     }
     let _ = crate::modules::tray::update_tray_menu(&app);
     Ok(success_count as i32)
@@ -1857,13 +1932,25 @@ pub async fn refresh_codex_quotas_batch(
     app: AppHandle,
     account_ids: Vec<String>,
     respect_group_quota_refresh: Option<bool>,
+    background: Option<bool>,
 ) -> Result<i32, String> {
     let respect = respect_group_quota_refresh.unwrap_or(true);
-    let results =
-        codex_quota::refresh_quotas_for_account_ids_with_options(&account_ids, respect).await?;
+    let results = if background.unwrap_or(false) {
+        Box::pin(codex_quota::refresh_quotas_for_account_ids_in_background(
+            &account_ids,
+            respect,
+        ))
+        .await?
+    } else {
+        Box::pin(codex_quota::refresh_quotas_for_account_ids_with_options(
+            &account_ids,
+            respect,
+        ))
+        .await?
+    };
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
     if success_count > 0 {
-        run_codex_post_refresh_checks(&app).await;
+        Box::pin(run_codex_post_refresh_checks(&app)).await;
     }
     let _ = crate::modules::tray::update_tray_menu(&app);
     Ok(success_count as i32)
@@ -2171,31 +2258,21 @@ pub async fn update_codex_account_tags(
     codex_account::update_account_tags(&account_id, tags)
 }
 
-#[tauri::command]
-pub async fn update_codex_accounts_fingerprint_mode(
-    account_ids: Vec<String>,
-    mode: String,
-) -> Result<Vec<CodexAccount>, String> {
-    codex_account::update_accounts_fingerprint_mode(&account_ids, mode)
-}
-
-#[tauri::command]
-pub async fn update_codex_account_client_policy(
-    account_id: String,
-    codex_cli_only: bool,
-    allow_app_server: bool,
-) -> Result<CodexAccount, String> {
-    codex_account::update_account_client_policy(&account_id, codex_cli_only, allow_app_server)
-}
 
 #[tauri::command]
 pub async fn update_codex_account_instance_access(
     account_id: String,
     access_mode: Option<String>,
     startup_model: Option<String>,
+    image_generation_account_ids: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        codex_account::update_account_instance_access(&account_id, access_mode, startup_model)
+        codex_account::update_account_instance_access(
+            &account_id,
+            access_mode,
+            startup_model,
+            image_generation_account_ids,
+        )
     })
     .await
     .map_err(|error| format!("保存 DeepSeek 接入方式失败: {}", error))?
@@ -2473,3 +2550,7 @@ pub async fn restore_codex_active_takeover_if_enabled(app: AppHandle) -> Result<
 }
 
 // ─── Codex 账号分组持久化 ────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "codex_quota_future_tests.rs"]
+mod codex_quota_future_tests;

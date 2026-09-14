@@ -18,13 +18,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { CodexTab } from "../components/CodexOverviewTabsHeader";
-import { useDeepSeekDirectModelPrompt } from "../components/codex/DeepSeekDirectModelModal";
 import { type CodexWakeupTestOpenRequest } from "../components/codex/CodexWakeupContent";
 import { CodexSpeedSelect } from "../components/codex/CodexSpeedSelect";
 import { useProviderAccountsPage } from "../hooks/useProviderAccountsPage";
 import { usePlatformRuntimeSupport } from "../hooks/usePlatformRuntimeSupport";
 import { useEscClose } from "../hooks/useEscClose";
 import { useLaunchTerminalOptions } from "../hooks/useLaunchTerminalOptions";
+import { useRememberMfaQuery } from "../hooks/useRememberMfaQuery";
 import type { SingleSelectFilterOption } from "../components/SingleSelectFilterDropdown";
 import type { CodexAccount, CodexAppSpeed } from "../types/codex";
 import type { CodexLocalAccessAddressKind, CodexLocalAccessState } from "../types/codexLocalAccess";
@@ -392,7 +392,6 @@ export function useCodexAccountsBaseController() {
     >(null);
     const [cliLaunchModal, setCliLaunchModal] =
       useState<CodexCliLaunchModalState | null>(null);
-    const deepSeekStart = useDeepSeekDirectModelPrompt();
     const codexCliInstanceDefaultsRef = useRef<InstanceDefaults | null>(null);
     const { terminalOptions, selectedTerminal, setSelectedTerminal } =
       useLaunchTerminalOptions(isCliLaunchSupported);
@@ -2276,6 +2275,13 @@ export function useCodexAccountsBaseController() {
     const refreshSavedMfaRecords = useCallback(() => {
       setSavedMfaRecords(loadSavedMfaRecords());
     }, []);
+
+    const rememberActiveAccountNoteMfaQuery = useRememberMfaQuery({
+      enabled: Boolean(activeAccountNoteMode),
+      secret: activeAccountNoteForm.twoFactorSecret,
+      accountName: activeAccountNoteDisplayName,
+      remark: activeAccountNoteForm.note,
+    });
   
     const resetAccountNoteMailPreview = useCallback(() => {
       accountNoteMailPreviewSeqRef.current += 1;
@@ -2436,6 +2442,7 @@ export function useCodexAccountsBaseController() {
   
     const closeAccountNoteModal = useCallback(() => {
       if (savingAccountNote || savingPendingOAuthAccount) return;
+      rememberActiveAccountNoteMfaQuery();
       setEditingAccountNoteId(null);
       setEditingAccountNoteForm(EMPTY_CODEX_ACCOUNT_NOTE_FORM);
       setPendingOAuthNoteModalOpen(false);
@@ -2448,6 +2455,7 @@ export function useCodexAccountsBaseController() {
       setAccountNoteError(null);
     }, [
       resetAccountNoteMailPreview,
+      rememberActiveAccountNoteMfaQuery,
       savingAccountNote,
       savingPendingOAuthAccount,
       setAccountNoteError,
@@ -2565,6 +2573,7 @@ export function useCodexAccountsBaseController() {
         };
   
         if (normalizedTwoFactorSecret) {
+          rememberActiveAccountNoteMfaQuery();
           setSavedMfaRecords(
             upsertSavedMfaRecord({
               secret: normalizedTwoFactorSecret,
@@ -2618,6 +2627,7 @@ export function useCodexAccountsBaseController() {
       activeAccountNoteSaving,
       activeAccountUsesPersonalAccessToken,
       editingAccountNoteId,
+      rememberActiveAccountNoteMfaQuery,
       setAccountNoteError,
       setMessage,
       resetAccountNoteMailPreview,
@@ -2785,7 +2795,6 @@ export function useCodexAccountsBaseController() {
     copyFormattedExportJson,
     copyFormattedExportSavedPath,
     currentAccount,
-    deepSeekStart,
     deleteConfirm,
     deleteConfirmError,
     deleteConfirmErrorScrollKey,

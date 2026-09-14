@@ -74,10 +74,13 @@ import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
 import { scrollElementTo } from "../utils/reducedMotion";
 import { useCodexAccountOverviewMemberView } from "../hooks/useCodexAccountOverviewMemberView";
 import {
-  buildCodexStatsTimeRange,
   type CodexStatsRangeKey,
   type CodexStatsTimeRange,
 } from "../utils/codexStatsRange";
+import {
+  persistCodexStatsRangeSelection,
+  readCodexStatsRangeSelection,
+} from "../utils/codexStatsRangePreference";
 import "./CodexApiServicePage.css";
 import { CodexApiServiceView } from "./CodexApiServiceView";
 
@@ -93,7 +96,6 @@ export type CopyField =
   | `apiKey:${string}`;
 export type RequestLogKindFilter = "all" | CodexLocalAccessRequestKind;
 export type RequestLogStatusFilter = "all" | "success" | "failed";
-export type RequestLogGatewayModeFilter = "all" | "legacy" | "sidecar";
 type BuiltinTimeoutPresetId = "long_wait" | "short_wait";
 type TimeoutPresetId = BuiltinTimeoutPresetId | string;
 
@@ -183,27 +185,6 @@ function readStoredAddressKind(): CodexLocalAccessAddressKind {
 function persistAddressKind(value: CodexLocalAccessAddressKind): void {
   try {
     localStorage.setItem(ADDRESS_KIND_STORAGE_KEY, value);
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function normalizeStatsRange(value: string | null | undefined): CodexStatsRangeKey {
-  if (value === "weekly" || value === "monthly") return value;
-  return "daily";
-}
-
-function readStoredStatsRange(): CodexStatsRangeKey {
-  try {
-    return normalizeStatsRange(localStorage.getItem(STATS_RANGE_STORAGE_KEY));
-  } catch {
-    return "daily";
-  }
-}
-
-function persistStatsRange(value: CodexStatsRangeKey): void {
-  try {
-    localStorage.setItem(STATS_RANGE_STORAGE_KEY, value);
   } catch {
     // ignore storage failures
   }
@@ -503,7 +484,7 @@ function parseModelAliasText(value: string): CodexLocalAccessModelAlias[] {
 }
 
 const DEEPSEEK_OFFICIAL_API_MODEL_MAPPINGS: CodexApiModelMapping[] = [
-  { client_model: "gpt-5.6-sol", upstream_model: "deepseek-v4-flash" },
+  { client_model: "gpt-5.6-sol", upstream_model: "deepseek-flash" },
   { client_model: "gpt-5.6-terra", upstream_model: "deepseek-v4-pro" },
   { client_model: "deepseek-v4-flash", upstream_model: "deepseek-v4-flash" },
   { client_model: "deepseek-v4-pro", upstream_model: "deepseek-v4-pro" },
@@ -671,19 +652,6 @@ function requestKindLabel(
   return t("codex.localAccess.requestKind.other", "其他");
 }
 
-function gatewayModeLabel(
-  mode: RequestLogGatewayModeFilter | null | undefined,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  if (mode === "legacy") {
-    return t("codex.localAccess.gatewayModeOldLabel", "API 服务-旧");
-  }
-  if (mode === "sidecar") {
-    return t("codex.localAccess.gatewayModeNewLabel", "API 服务-新");
-  }
-  return t("codex.apiService.logs.gatewayModeUnknown", "模式未知");
-}
-
 /** 与后端写入 x-cockpit-instance-id 一致：profile 目录 basename */
 function clientInstanceIdFromUserDataDir(userDataDir: string): string {
   const normalized = userDataDir.trim().replace(/[/\\]+$/, "");
@@ -736,12 +704,10 @@ export function useCodexApiServicePageController() {
   const [groups, setGroups] = useState<CodexAccountGroup[]>([]);
   const [activeTab, setActiveTab] = useState<ServiceTab>("overview");
   const [statsLogTab, setStatsLogTab] = useState<StatsLogTab>("logs");
-  const [statsRange, setStatsRange] = useState<CodexStatsRangeKey>(() =>
-    readStoredStatsRange(),
+  const [statsSelection, setStatsSelection] = useState(() =>
+    readCodexStatsRangeSelection(STATS_RANGE_STORAGE_KEY),
   );
-  const [statsTimeRange, setStatsTimeRange] = useState<CodexStatsTimeRange>(() =>
-    buildCodexStatsTimeRange(readStoredStatsRange()),
-  );
+  const { key: statsRange, range: statsTimeRange } = statsSelection;
   const [filteredStatsWindow, setFilteredStatsWindow] =
     useState<CodexLocalAccessStatsWindow | null>(null);
   const [statsRangeError, setStatsRangeError] = useState("");
@@ -816,6 +782,10 @@ export function useCodexApiServicePageController() {
   const [immediateSseResponseDraft, setImmediateSseResponseDraft] = useState(false);
   const [maxConcurrentImageRequestsDraft, setMaxConcurrentImageRequestsDraft] =
     useState("1");
+  const [maxAccountConcurrencyDraft, setMaxAccountConcurrencyDraft] =
+    useState("0");
+  const [accountConcurrencyWaitDraft, setAccountConcurrencyWaitDraft] =
+    useState("120");
   const [requestLogPage, setRequestLogPage] = useState(1);
   const [requestLogPageSize, setRequestLogPageSize] = useState(() =>
     readStoredRequestLogPageSize(),
@@ -824,12 +794,12 @@ export function useCodexApiServicePageController() {
     useState<CodexLocalAccessUsageEventPage | null>(null);
   const [requestLogLoading, setRequestLogLoading] = useState(false);
   const [requestLogError, setRequestLogError] = useState("");
+  const [statsDetailsRefreshing, setStatsDetailsRefreshing] = useState(false);
+  const [requestLogRefreshNonce, setRequestLogRefreshNonce] = useState(0);
   const [requestLogKindFilter, setRequestLogKindFilter] =
     useState<RequestLogKindFilter>("all");
   const [requestLogStatusFilter, setRequestLogStatusFilter] =
     useState<RequestLogStatusFilter>("all");
-  const [requestLogGatewayModeFilter, setRequestLogGatewayModeFilter] =
-    useState<RequestLogGatewayModeFilter>("all");
   const [requestLogModelQuery, setRequestLogModelQuery] = useState("");
   const [requestLogAccountQuery, setRequestLogAccountQuery] = useState("");
   const [requestLogApiKeyQuery, setRequestLogApiKeyQuery] = useState("");
@@ -884,7 +854,9 @@ export function useCodexApiServicePageController() {
   const selectedStatsWindow =
     useMemo<CodexLocalAccessStatsWindow | null>(() => {
       if (filteredStatsWindow) return filteredStatsWindow;
-      if (!stats || statsRange === "custom") return null;
+      if (!stats || statsRange === "custom" || statsRange === "rolling7d") {
+        return filteredStatsWindow;
+      }
       return stats[statsRange];
     }, [filteredStatsWindow, stats, statsRange]);
   const apiKeyStatsById = new Map(
@@ -1239,6 +1211,32 @@ export function useCodexApiServicePageController() {
     }
   }, []);
 
+  const handleRefreshStatsDetails = useCallback(async () => {
+    if (statsDetailsRefreshing) return;
+    setStatsDetailsRefreshing(true);
+    setStatsRangeError("");
+    setRequestLogError("");
+    try {
+      const [nextStats] = await Promise.all([
+        codexLocalAccessService.queryCodexLocalAccessStats(
+          statsTimeRange.startAt,
+          statsTimeRange.endAt,
+        ),
+        reloadState(),
+      ]);
+      if (mountedRef.current) {
+        setFilteredStatsWindow(nextStats);
+        setRequestLogRefreshNonce((value) => value + 1);
+      }
+    } catch (refreshError) {
+      if (mountedRef.current) {
+        setStatsRangeError(String(refreshError).replace(/^Error:\s*/, ""));
+      }
+    } finally {
+      if (mountedRef.current) setStatsDetailsRefreshing(false);
+    }
+  }, [reloadState, statsDetailsRefreshing, statsTimeRange.endAt, statsTimeRange.startAt]);
+
   useEffect(() => {
     mountedRef.current = true;
     void reloadState().catch((err) =>
@@ -1346,10 +1344,6 @@ export function useCodexApiServicePageController() {
   }, [reloadState, t]);
 
   useEffect(() => {
-    persistStatsRange(statsRange);
-  }, [statsRange]);
-
-  useEffect(() => {
     const requestSeq = ++statsRequestSeqRef.current;
     setStatsRangeError("");
     void codexLocalAccessService
@@ -1368,13 +1362,15 @@ export function useCodexApiServicePageController() {
     key: Exclude<CodexStatsRangeKey, "custom">,
     range: CodexStatsTimeRange,
   ) => {
-    setStatsRange(key);
-    setStatsTimeRange(range);
+    const selection = { key, range };
+    setStatsSelection(selection);
+    persistCodexStatsRangeSelection(STATS_RANGE_STORAGE_KEY, selection);
   };
 
   const handleCustomStatsRangeApply = (range: CodexStatsTimeRange) => {
-    setStatsRange("custom");
-    setStatsTimeRange(range);
+    const selection = { key: "custom" as const, range };
+    setStatsSelection(selection);
+    persistCodexStatsRangeSelection(STATS_RANGE_STORAGE_KEY, selection);
   };
 
   useEffect(() => {
@@ -1416,7 +1412,6 @@ export function useCodexApiServicePageController() {
     requestLogPageSize,
     requestLogKindFilter,
     requestLogStatusFilter,
-    requestLogGatewayModeFilter,
     requestLogModelQuery,
     requestLogAccountQuery,
     requestLogApiKeyQuery,
@@ -1439,7 +1434,10 @@ export function useCodexApiServicePageController() {
       .queryCodexLocalAccessRequestLogs({
         page: requestLogPage,
         pageSize: requestLogPageSize,
-        statsRange: statsRange === "custom" ? null : statsRange,
+        statsRange:
+          statsRange === "custom" || statsRange === "rolling7d"
+            ? null
+            : statsRange,
         startAt: statsTimeRange.startAt,
         endAt: statsTimeRange.endAt,
         modelQuery: requestLogModelQuery,
@@ -1447,10 +1445,6 @@ export function useCodexApiServicePageController() {
         apiKeyQuery: requestLogApiKeyQuery,
         instanceQuery:
           requestLogInstanceQuery === "all" ? null : requestLogInstanceQuery,
-        gatewayMode:
-          requestLogGatewayModeFilter === "all"
-            ? null
-            : requestLogGatewayModeFilter,
         requestKind:
           requestLogKindFilter === "all" ? null : requestLogKindFilter,
         success,
@@ -1486,12 +1480,12 @@ export function useCodexApiServicePageController() {
     requestLogPageSize,
     requestLogKindFilter,
     requestLogStatusFilter,
-    requestLogGatewayModeFilter,
     requestLogModelQuery,
     requestLogAccountQuery,
     requestLogApiKeyQuery,
     requestLogInstanceQuery,
     requestLogErrorQuery,
+    requestLogRefreshNonce,
     stats?.updatedAt,
   ]);
 
@@ -1545,6 +1539,12 @@ export function useCodexApiServicePageController() {
     setMaxConcurrentImageRequestsDraft(
       String(collection?.maxConcurrentImageRequests ?? 1),
     );
+    setMaxAccountConcurrencyDraft(
+      String(collection?.maxAccountConcurrency ?? 0),
+    );
+    setAccountConcurrencyWaitDraft(
+      formatSeconds(collection?.accountConcurrencyWaitMs ?? 120 * 1000),
+    );
     setTimeoutDrafts(timeoutDraftsFromValue(collection?.timeouts));
     setSelectedTimeoutPresetId(
       collection?.activeTimeoutPresetId || "long_wait",
@@ -1561,6 +1561,8 @@ export function useCodexApiServicePageController() {
     collection?.disableCooling,
     collection?.immediateSseResponse,
     collection?.maxConcurrentImageRequests,
+    collection?.maxAccountConcurrency,
+    collection?.accountConcurrencyWaitMs,
     collection?.timeouts,
     collection?.activeTimeoutPresetId,
   ]);
@@ -2976,6 +2978,36 @@ export function useCodexApiServicePageController() {
       );
       return;
     }
+    const maxAccountConcurrency = parseIntegerDraft(
+      maxAccountConcurrencyDraft,
+      0,
+      64,
+    );
+    if (maxAccountConcurrency === null) {
+      setError(
+        t("codex.apiService.validation.numberRange", {
+          min: 0,
+          max: 64,
+          defaultValue: "Please enter a number between {{min}} and {{max}}",
+        }),
+      );
+      return;
+    }
+    const accountConcurrencyWaitSeconds = parseIntegerDraft(
+      accountConcurrencyWaitDraft,
+      0,
+      1800,
+    );
+    if (accountConcurrencyWaitSeconds === null) {
+      setError(
+        t("codex.apiService.validation.numberRange", {
+          min: 0,
+          max: 1800,
+          defaultValue: "Please enter a number between {{min}} and {{max}}",
+        }),
+      );
+      return;
+    }
     await runAction(
       async () => {
         const next =
@@ -2988,6 +3020,8 @@ export function useCodexApiServicePageController() {
             disableCooling: disableCoolingDraft,
             immediateSseResponse: immediateSseResponseDraft,
             maxConcurrentImageRequests,
+            maxAccountConcurrency,
+            accountConcurrencyWaitMs: accountConcurrencyWaitSeconds * 1000,
           });
         setState(next);
       },
@@ -3386,6 +3420,8 @@ export function useCodexApiServicePageController() {
   const selectedStatsRangeTitle =
     statsRange === "daily"
       ? t("codex.apiService.statsRange.today", "Today")
+      : statsRange === "rolling7d"
+        ? t("codex.sessionUsage.range.7d", "近 7 天")
       : statsRange === "weekly"
         ? t("codex.apiService.statsRange.thisWeek", "This week")
         : statsRange === "monthly"
@@ -3439,23 +3475,6 @@ export function useCodexApiServicePageController() {
     }
     return options;
   }, [codexInstances, t]);
-  const requestLogGatewayModeOptions: Array<{
-    value: RequestLogGatewayModeFilter;
-    label: string;
-  }> = [
-    {
-      value: "all",
-      label: t("codex.apiService.logs.allGatewayModes", "All Modes"),
-    },
-    {
-      value: "sidecar",
-      label: t("codex.localAccess.gatewayModeNewLabel", "API Service-New"),
-    },
-    {
-      value: "legacy",
-      label: t("codex.localAccess.gatewayModeOldLabel", "API Service-Old"),
-    },
-  ];
   const serviceTabs: Array<{
     key: ServiceTab;
     label: string;
@@ -3567,7 +3586,6 @@ export function useCodexApiServicePageController() {
   const hasRequestLogFilters = Boolean(
     requestLogKindFilter !== "all" ||
     requestLogStatusFilter !== "all" ||
-    requestLogGatewayModeFilter !== "all" ||
     requestLogInstanceQuery !== "all" ||
     requestLogModelQuery.trim() ||
     requestLogAccountQuery.trim() ||
@@ -3577,7 +3595,6 @@ export function useCodexApiServicePageController() {
   const clearRequestLogFilters = () => {
     setRequestLogKindFilter("all");
     setRequestLogStatusFilter("all");
-    setRequestLogGatewayModeFilter("all");
     setRequestLogModelQuery("");
     setRequestLogAccountQuery("");
     setRequestLogApiKeyQuery("");
@@ -3588,6 +3605,7 @@ export function useCodexApiServicePageController() {
   return {
     accessScope,
     accessScopeOptions,
+    accountConcurrencyWaitDraft,
     accountDisplayNames,
     accountModelMappingDrafts,
     accountModelMappingError,
@@ -3639,11 +3657,11 @@ export function useCodexApiServicePageController() {
     formatLatencyMs,
     formatRequestResultDetail,
     formatUsdCost,
-    gatewayModeLabel,
     groups,
     handleActivateService,
     handleApplyAccountModelRuleBulk,
     handleClearStats,
+    handleRefreshStatsDetails,
     handleCloseAccountModelMappings,
     handleCloseAccountModelRules,
     handleCloseTestDialog,
@@ -3696,6 +3714,7 @@ export function useCodexApiServicePageController() {
     mappingDraftsFromAccount,
     mappingMemberAccounts,
     maskAccountText,
+    maxAccountConcurrencyDraft,
     maxConcurrentImageRequestsDraft,
     maxRetryCredentialsDraft,
     maxRetryIntervalDraft,
@@ -3731,13 +3750,12 @@ export function useCodexApiServicePageController() {
     requestLogError,
     requestLogErrorQuery,
     requestLogEvents,
-    requestLogGatewayModeFilter,
-    requestLogGatewayModeOptions,
     requestLogInstanceOptions,
     requestLogInstanceQuery,
     requestLogKindFilter,
     requestLogKindOptions,
     requestLogLoading,
+    statsDetailsRefreshing,
     requestLogModelQuery,
     requestLogPageSize,
     requestLogRangeEnd,
@@ -3766,12 +3784,14 @@ export function useCodexApiServicePageController() {
     setAddressKind,
     setApiKeyDrafts,
     setApiKeyPolicyDrafts,
+    setAccountConcurrencyWaitDraft,
     setDisableCoolingDraft,
     setError,
     setExcludedModelsText,
     setHealthModalOpen,
     setImmediateSseResponseDraft,
     setKeyVisible,
+    setMaxAccountConcurrencyDraft,
     setMaxConcurrentImageRequestsDraft,
     setMaxRetryCredentialsDraft,
     setMaxRetryIntervalDraft,
@@ -3784,7 +3804,6 @@ export function useCodexApiServicePageController() {
     setRequestLogAccountQuery,
     setRequestLogApiKeyQuery,
     setRequestLogErrorQuery,
-    setRequestLogGatewayModeFilter,
     setRequestLogInstanceQuery,
     setRequestLogKindFilter,
     setRequestLogModelQuery,

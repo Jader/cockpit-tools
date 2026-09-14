@@ -38,6 +38,7 @@ import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { useModalErrorState } from '../components/ModalErrorMessage'
 import { useEscClose } from '../hooks/useEscClose'
 import { useEnterConfirm } from '../hooks/useEnterConfirm'
+import { AntigravityGcpTosBadge } from '../components/AntigravityGcpTosBadge'
 import {
   AccountGroup,
   getAccountGroups,
@@ -119,6 +120,7 @@ import {
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence'
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget'
+import { useRememberMfaQuery } from '../hooks/useRememberMfaQuery'
 import {
   getMfaOtpToken,
   getMfaTimeRemaining,
@@ -2738,8 +2740,16 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
     }
   }, [fetchAccountNoteMailPreviewForUrl, oauthAccountNoteForm.mailUrl, oauthAccountNoteMode])
 
+  const rememberActiveAccountNoteMfaQuery = useRememberMfaQuery({
+    enabled: Boolean(editingAccountNoteId || oauthAccountNoteMode),
+    secret: activeAccountNoteForm.twoFactorSecret,
+    accountName: activeAccountNoteEmail,
+    remark: activeAccountNoteForm.note,
+  })
+
   const closeAccountNoteModal = useCallback(() => {
     if (savingAccountNote) return
+    rememberActiveAccountNoteMfaQuery()
     setEditingAccountNoteId(null)
     setOauthAccountNoteMode(false)
     setEditingAccountNoteForm(EMPTY_ANTIGRAVITY_ACCOUNT_NOTE_FORM)
@@ -2748,7 +2758,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
     setAccountNoteMfaPickerOpen(false)
     setAccountNoteError(null)
     resetAccountNoteMailPreview()
-  }, [resetAccountNoteMailPreview, savingAccountNote, setAccountNoteError])
+  }, [rememberActiveAccountNoteMfaQuery, resetAccountNoteMailPreview, savingAccountNote, setAccountNoteError])
 
   const updateEditingAccountNoteForm = useCallback(
     (update: Partial<AntigravityAccountNoteFormState>) => {
@@ -2807,6 +2817,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
         await updateAccountNotes(editingAccountNoteId, noteUpdate)
       }
       if (normalizedTwoFactorSecret) {
+        rememberActiveAccountNoteMfaQuery()
         setSavedMfaRecords(upsertSavedMfaRecord({
           secret: normalizedTwoFactorSecret,
           accountName: editingAccountNoteAccount?.email ?? parsedTwoFactorSecret?.accountName ?? null,
@@ -2832,6 +2843,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
     editingAccountNoteId,
     editingAccountNoteAccount,
     oauthAccountNoteMode,
+    rememberActiveAccountNoteMfaQuery,
     savingAccountNote,
     setAccountNoteError,
     t,
@@ -3164,6 +3176,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
             <span className={`tier-badge ${tierBadge.className}`}>
               {tierBadge.label}
             </span>
+            <AntigravityGcpTosBadge account={account} />
             {isPendingAntigravityAccount(account) && (
               <span className="status-pill warning">{t('codex.pendingAuth.badge', '待授权')}</span>
             )}
@@ -3813,6 +3826,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
                 <span className={`tier-badge ${tierBadge.className}`}>
                   {tierBadge.label}
                 </span>
+                <AntigravityGcpTosBadge account={account} />
                 {(() => {
                   const vBadge = getVerificationBadge(account)
                   return vBadge ? (

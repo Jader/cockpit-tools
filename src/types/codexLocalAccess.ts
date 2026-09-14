@@ -120,6 +120,7 @@ export interface CodexLocalAccessCollection {
   accessScope: CodexLocalAccessScope;
   clientBaseUrlHost: CodexLocalAccessClientBaseUrlHost;
   imageGenerationMode: CodexLocalAccessImageGenerationMode;
+  imageGenerationModel: string;
   imageGenerationAccountPolicies: Record<
     string,
     CodexLocalAccessImageGenerationPolicy
@@ -135,6 +136,8 @@ export interface CodexLocalAccessCollection {
   debugLogs: boolean;
   immediateSseResponse: boolean;
   maxConcurrentImageRequests: number;
+  maxAccountConcurrency: number;
+  accountConcurrencyWaitMs: number;
   excludedModels: string[];
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
@@ -202,6 +205,13 @@ export interface CodexLocalAccessStatsWindow {
   accounts: CodexLocalAccessAccountStats[];
   models: CodexLocalAccessModelStats[];
   apiKeys: CodexLocalAccessApiKeyStats[];
+  trend: CodexLocalAccessUsageTrendPoint[];
+  trendHourly: boolean;
+}
+
+export interface CodexLocalAccessUsageTrendPoint {
+  bucketStart: number;
+  usage: CodexLocalAccessUsageStats;
 }
 
 export interface CodexLocalAccessAccountWindowQuery {
@@ -257,7 +267,7 @@ export interface CodexLocalAccessUsageEvent {
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind: CodexLocalAccessRequestKind;
   serviceTier?: string | null;
-  /** Request reasoning effort (e.g. low/medium/high/xhigh), when present. */
+  /** Request reasoning effort (e.g. low/medium/high/xhigh/max), when present. */
   reasoningEffort?: string | null;
   success: boolean;
   httpStatus?: number | null;
